@@ -30,6 +30,7 @@ import java.util.jar.Manifest;
  * 注解注入器
  * 对重映射后的 JAR 进行 ASM 二次遍历，注入映射相关注解
  */
+@SuppressWarnings("ClassCanBeRecord")
 @Log
 @RequiredArgsConstructor
 public class AnnotationInjector {
@@ -47,23 +48,23 @@ public class AnnotationInjector {
 
         if (entry.hasComment()) {
             AnnotationVisitor av = target.visitAnnotation(MAPPING_COMMENT_DESC);
-            av.visit("value", entry.getComment());
+            av.visit("value", entry.comment());
             av.visitEnd();
         }
 
         AnnotationVisitor av = target.visitAnnotation(ORIGINAL_NAME_DESC);
-        visitIfNotNull(av, "owner", entry.getObfOwner());
-        av.visit("name", entry.getObfName());
-        visitIfNotNull(av, "descriptor", entry.getObfDescriptor());
+        visitIfNotNull(av, "owner", entry.obfOwner());
+        av.visit("name", entry.obfName());
+        visitIfNotNull(av, "descriptor", entry.obfDescriptor());
         av.visitEnd();
 
         av = target.visitAnnotation(MAPPING_INFO_DESC);
-        visitIfNotNull(av, "obfOwner", entry.getObfOwner());
-        av.visit("obfName", entry.getObfName());
-        visitIfNotNull(av, "obfDescriptor", entry.getObfDescriptor());
-        visitIfNotNull(av, "readableOwner", entry.getReadableOwner());
-        av.visit("readableName", entry.getReadableName());
-        visitIfNotNull(av, "readableDescriptor", entry.getReadableDescriptor());
+        visitIfNotNull(av, "obfOwner", entry.obfOwner());
+        av.visit("obfName", entry.obfName());
+        visitIfNotNull(av, "obfDescriptor", entry.obfDescriptor());
+        visitIfNotNull(av, "readableOwner", entry.readableOwner());
+        av.visit("readableName", entry.readableName());
+        visitIfNotNull(av, "readableDescriptor", entry.readableDescriptor());
         av.visitEnd();
     }
 

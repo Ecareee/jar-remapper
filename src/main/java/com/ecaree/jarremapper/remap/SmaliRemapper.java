@@ -40,6 +40,7 @@ import java.util.List;
  * Smali 重映射
  * 使用 smali -> dex -> remap dex -> baksmali 流程
  */
+@SuppressWarnings("ClassCanBeRecord")
 @Log
 @RequiredArgsConstructor
 public class SmaliRemapper {
@@ -67,7 +68,7 @@ public class SmaliRemapper {
             return;
         }
 
-        log.info("Starting smali remapping...");
+        log.info("Starting smali remapping");
         log.info("Input: " + inputDir);
         log.info("Output: " + outputDir);
         log.info("Found " + smaliFiles.size() + " smali files");
@@ -80,7 +81,7 @@ public class SmaliRemapper {
 
         try {
             // 1. 编译 smali 到 dex
-            log.info("1. Compiling smali to dex.");
+            log.info("1. Compiling smali to dex");
             compileSmaliToDex(smaliFiles, tempDex);
             log.info("Dex created: " + tempDex.length() + " bytes");
 

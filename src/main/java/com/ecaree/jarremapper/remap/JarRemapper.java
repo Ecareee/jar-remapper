@@ -1,6 +1,7 @@
 package com.ecaree.jarremapper.remap;
 
 import com.ecaree.jarremapper.mapping.MappingData;
+import com.ecaree.jarremapper.util.FileUtils;
 import lombok.extern.java.Log;
 import net.md_5.specialsource.Jar;
 import net.md_5.specialsource.JarMapping;
@@ -56,7 +57,7 @@ public record JarRemapper(MappingData mappingData) {
         net.md_5.specialsource.JarRemapper remapper = new net.md_5.specialsource.JarRemapper(null, jarMapping, null);
 
         if (outputJar.getParentFile() != null && !outputJar.getParentFile().exists()) {
-            outputJar.getParentFile().mkdirs();
+            FileUtils.ensureDirectory(outputJar.getParentFile());
         }
 
         remapper.remapJar(jar, outputJar);

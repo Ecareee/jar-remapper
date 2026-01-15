@@ -4,6 +4,7 @@ import com.ecaree.jarremapper.JarRemapperExtension.JavaRemapperMode;
 import com.ecaree.jarremapper.mapping.MappingData;
 import com.ecaree.jarremapper.mapping.MappingLoader;
 import com.ecaree.jarremapper.remap.JavaRemapper;
+import com.ecaree.jarremapper.util.FileUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -51,10 +52,10 @@ public class JavaRemapperTest {
 
         javaInputDir = tempDir.resolve("java-input").toFile();
         javaOutputDir = tempDir.resolve("java-output").toFile();
-        javaInputDir.mkdirs();
+        FileUtils.ensureDirectory(javaOutputDir);
 
         File packageDir = new File(javaInputDir, "a");
-        packageDir.mkdirs();
+        FileUtils.ensureDirectory(packageDir);
 
         String java = """
                 package a;
@@ -127,7 +128,7 @@ public class JavaRemapperTest {
     @Test
     public void testEmptyDirectory() throws IOException {
         File emptyDir = tempDir.resolve("empty").toFile();
-        emptyDir.mkdirs();
+        FileUtils.ensureDirectory(emptyDir);
         File outputDir = tempDir.resolve("empty-output").toFile();
 
         JavaRemapper service = new JavaRemapper(mappingData, JavaRemapperMode.TYPES_ONLY);

@@ -3,6 +3,7 @@ package com.ecaree.jarremapper;
 import com.ecaree.jarremapper.mapping.MappingData;
 import com.ecaree.jarremapper.mapping.MappingLoader;
 import com.ecaree.jarremapper.remap.SmaliRemapper;
+import com.ecaree.jarremapper.util.FileUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -28,28 +29,28 @@ public class SmaliRemapperTest {
         Files.writeString(yamlFile.toPath(), """
                 version: "1.0"
                 classes:
-                  - obfuscated: "a/b"
-                    readable: "com/example/TestClass"
+                  - obfuscated: a/b
+                    readable: com/example/TestClass
                     fields:
-                      - obfuscated: "a"
-                        readable: "mValue"
-                        type: "I"
+                      - obfuscated: a
+                        readable: mValue
+                        type: I
                     methods:
-                      - obfuscated: "a"
-                        readable: "getValue"
-                        descriptor: "()I"
-                  - obfuscated: "a/c"
-                    readable: "com/example/Helper"
+                      - obfuscated: a
+                        readable: getValue
+                        descriptor: ()I
+                  - obfuscated: a/c
+                    readable: com/example/Helper
                 """);
 
         mappingData = MappingLoader.loadYaml(yamlFile);
 
         smaliInputDir = tempDir.resolve("smali-input").toFile();
         smaliOutputDir = tempDir.resolve("smali-output").toFile();
-        smaliInputDir.mkdirs();
+        FileUtils.ensureDirectory(smaliOutputDir);
 
         File packageDir = new File(smaliInputDir, "a");
-        packageDir.mkdirs();
+        FileUtils.ensureDirectory(packageDir);
 
         Files.writeString(new File(packageDir, "b.smali").toPath(), """
                 .class public La/b;
@@ -112,7 +113,7 @@ public class SmaliRemapperTest {
     @Test
     public void testEmptyDirectory() throws IOException {
         File emptyDir = tempDir.resolve("empty").toFile();
-        emptyDir.mkdirs();
+        FileUtils.ensureDirectory(emptyDir);
         File outputDir = tempDir.resolve("empty-output").toFile();
 
         SmaliRemapper service = new SmaliRemapper(mappingData);

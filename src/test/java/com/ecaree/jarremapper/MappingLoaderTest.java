@@ -91,11 +91,11 @@ public class MappingLoaderTest {
 
         MappingEntry classEntry = data.getClassEntry("com/example/TestClass");
         assertNotNull(classEntry, "Should find class mapping entry");
-        assertEquals("Test class", classEntry.getComment());
+        assertEquals("Test class", classEntry.comment());
 
         MappingEntry fieldEntry = data.getFieldEntry("com/example/TestClass", "mField");
         assertNotNull(fieldEntry, "Should find field mapping entry");
-        assertEquals("Test field", fieldEntry.getComment());
+        assertEquals("Test field", fieldEntry.comment());
     }
 
     @Test

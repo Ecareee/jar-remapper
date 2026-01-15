@@ -7,6 +7,7 @@ import com.ecaree.jarremapper.remap.AnnotationInjector;
 import com.ecaree.jarremapper.remap.JarRemapper;
 import com.ecaree.jarremapper.remap.JavaRemapper;
 import com.ecaree.jarremapper.remap.SmaliRemapper;
+import com.ecaree.jarremapper.util.FileUtils;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
@@ -191,10 +192,10 @@ public class IntegrationTest {
 
         File smaliInput = tempDir.resolve("smali-in").toFile();
         File smaliOutput = tempDir.resolve("smali-out").toFile();
-        smaliInput.mkdirs();
+        FileUtils.ensureDirectory(smaliInput);
 
         File aDir = new File(smaliInput, "a");
-        aDir.mkdirs();
+        FileUtils.ensureDirectory(aDir);
 
         String smali = """
                 .class public La/A;
@@ -229,10 +230,10 @@ public class IntegrationTest {
 
         File javaInput = tempDir.resolve("java-in").toFile();
         File javaOutput = tempDir.resolve("java-out").toFile();
-        javaInput.mkdirs();
+        FileUtils.ensureDirectory(javaInput);
 
         File aDir = new File(javaInput, "a");
-        aDir.mkdirs();
+        FileUtils.ensureDirectory(aDir);
 
         String java = """
                 package a;

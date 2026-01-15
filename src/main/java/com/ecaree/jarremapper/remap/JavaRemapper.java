@@ -27,9 +27,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Java 源码重映射
+ * Java 重映射
  * 使用 JavaParser 进行 AST 级别重映射
  */
+@SuppressWarnings("ClassCanBeRecord")
 @Log
 @RequiredArgsConstructor
 public class JavaRemapper {
