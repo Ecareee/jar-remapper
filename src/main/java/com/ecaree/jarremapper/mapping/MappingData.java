@@ -1,0 +1,48 @@
+package com.ecaree.jarremapper.mapping;
+
+import net.md_5.specialsource.JarMapping;
+
+import java.util.Map;
+
+/**
+ * 映射数据容器
+ * 包含 SpecialSource 的 JarMapping 和带注释的 MappingEntry
+ *
+ * @param jarMapping SpecialSource 使用的映射对象
+ * @param entries    带注释的映射条目
+ *                   Key: readable 格式的标识
+ */
+public record MappingData(JarMapping jarMapping, Map<String, MappingEntry> entries) {
+    /**
+     * 根据可读类名查找类映射条目
+     */
+    public MappingEntry getClassEntry(String readableClassName) {
+        return entries.get(readableClassName);
+    }
+
+    /**
+     * 根据可读所有者和字段名查找字段映射条目
+     */
+    public MappingEntry getFieldEntry(String readableOwner, String readableName) {
+        return entries.get(readableOwner + "/" + readableName);
+    }
+
+    /**
+     * 根据可读所有者、方法名和描述符查找方法映射条目
+     */
+    public MappingEntry getMethodEntry(String readableOwner, String readableName, String readableDescriptor) {
+        return entries.get(readableOwner + "/" + readableName + " " + readableDescriptor);
+    }
+
+    public int getClassCount() {
+        return jarMapping.classes.size();
+    }
+
+    public int getFieldCount() {
+        return jarMapping.fields.size();
+    }
+
+    public int getMethodCount() {
+        return jarMapping.methods.size();
+    }
+}

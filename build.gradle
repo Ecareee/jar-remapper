@@ -1,0 +1,109 @@
+plugins {
+    id 'java-gradle-plugin'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+repositories {
+    mavenCentral()
+    google()
+}
+
+dependencies {
+    // gradle api
+    implementation gradleApi()
+
+    // Lombok
+    compileOnly 'org.projectlombok:lombok:1.18.42'
+    annotationProcessor 'org.projectlombok:lombok:1.18.42'
+
+    // SpecialSource
+    implementation 'net.md-5:SpecialSource:1.11.5'
+
+    // ASM
+    implementation 'org.ow2.asm:asm:9.9.1'
+    implementation 'org.ow2.asm:asm-commons:9.9.1'
+    implementation 'org.ow2.asm:asm-tree:9.9.1'
+
+    // YAML
+    implementation 'org.yaml:snakeyaml:2.5'
+
+    // smali
+    implementation 'com.android.tools.smali:smali:3.0.9'
+    implementation 'com.android.tools.smali:smali-baksmali:3.0.9'
+    implementation 'com.android.tools.smali:smali-dexlib2:3.0.9'
+
+    // Java 重映射
+    implementation 'com.github.javaparser:javaparser-core:3.28.0'
+
+    // 测试
+    testImplementation "org.junit.jupiter:junit-jupiter-api:5.14.2"
+    testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:5.14.2"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher:1.14.2"
+    testRuntimeOnly "org.junit.platform:junit-platform-engine:1.14.2"
+    testImplementation gradleTestKit()
+}
+
+gradlePlugin {
+    plugins {
+        jarRemapperPlugin {
+            id = 'com.ecaree.jarremapper'
+            implementationClass = 'com.ecaree.jarremapper.JarRemapperPlugin'
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+}
+
+tasks.withType(Javadoc).configureEach {
+    options.addStringOption('Xdoclint:none', '-quiet')
+    options.encoding = 'UTF-8'
+}
+
+tasks.named('test', Test) {
+    useJUnitPlatform()
+
+    testLogging {
+        events("passed", "skipped", "failed")
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
+        exceptionFormat = 'full'
+    }
+
+    reports {
+        html.required = true
+        junitXml.required = true
+    }
+}
+
+
+tasks.named('jar', Jar) {
+    manifest {
+        attributes(
+                'Implementation-Title': 'JarRemapper Gradle Plugin',
+                'Implementation-Version': version,
+                'Implementation-Vendor': group
+        )
+    }
+}
+
+tasks.register('sourcesJar', Jar) {
+    from sourceSets.main.allSource
+    archiveClassifier = 'sources'
+}
+
+tasks.register('javadocJar', Jar) {
+    from javadoc
+    archiveClassifier = 'javadoc'
+}
+
+artifacts {
+    archives sourcesJar
+    archives javadocJar
+}
