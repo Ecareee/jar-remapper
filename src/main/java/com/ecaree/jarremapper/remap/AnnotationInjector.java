@@ -14,10 +14,12 @@ import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Files;
 import java.util.Enumeration;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -28,7 +30,6 @@ import java.util.jar.Manifest;
  * 注解注入器
  * 对重映射后的 JAR 进行 ASM 二次遍历，注入映射相关注解
  */
-@SuppressWarnings("ClassCanBeRecord")
 @Log
 public class AnnotationInjector {
     private static final String MAPPING_COMMENT_DESC = Type.getDescriptor(MappingComment.class);
@@ -46,6 +47,24 @@ public class AnnotationInjector {
         this.includeReadableInfo = includeReadableInfo;
     }
 
+    private static byte[] readAllBytes(InputStream is) throws IOException {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int bytesRead;
+        while ((bytesRead = is.read(buffer)) != -1) {
+            bos.write(buffer, 0, bytesRead);
+        }
+        return bos.toByteArray();
+    }
+
+    private static void transferTo(InputStream is, OutputStream os) throws IOException {
+        byte[] buffer = new byte[8192];
+        int bytesRead;
+        while ((bytesRead = is.read(buffer)) != -1) {
+            os.write(buffer, 0, bytesRead);
+        }
+    }
+
     private static void visitIfNotNull(AnnotationVisitor av, String name, String value) {
         if (value != null) av.visit(name, value);
     }
@@ -58,19 +77,19 @@ public class AnnotationInjector {
 
         if (entry.hasComment()) {
             AnnotationVisitor av = target.visitAnnotation(MAPPING_COMMENT_DESC);
-            av.visit("value", entry.comment());
+            av.visit("value", entry.getComment());
             av.visitEnd();
         }
 
         AnnotationVisitor av = target.visitAnnotation(MAPPING_INFO_DESC);
-        visitIfNotNull(av, "obfOwner", entry.obfOwner());
-        av.visit("obfName", entry.obfName());
-        visitIfNotNull(av, "obfDescriptor", entry.obfDescriptor());
+        visitIfNotNull(av, "obfOwner", entry.getObfOwner());
+        av.visit("obfName", entry.getObfName());
+        visitIfNotNull(av, "obfDescriptor", entry.getObfDescriptor());
 
         if (includeReadableInfo) {
-            visitIfNotNull(av, "readableOwner", entry.readableOwner());
-            av.visit("readableName", entry.readableName());
-            visitIfNotNull(av, "readableDescriptor", entry.readableDescriptor());
+            visitIfNotNull(av, "readableOwner", entry.getReadableOwner());
+            av.visit("readableName", entry.getReadableName());
+            visitIfNotNull(av, "readableDescriptor", entry.getReadableDescriptor());
         }
         av.visitEnd();
     }
@@ -83,7 +102,6 @@ public class AnnotationInjector {
      * @throws IOException 如果 IO 操作失败
      */
     public void injectAnnotations(File inputJar, File outputJar) throws IOException {
-        // 如果输入输出相同，使用临时文件
         log.info("Starting annotation injection");
         log.info("Input: " + inputJar);
         log.info("Output: " + outputJar);
@@ -101,7 +119,7 @@ public class AnnotationInjector {
         int annotatedCount = 0;
 
         try (JarFile jarFile = new JarFile(inputJar);
-             JarOutputStream jos = new JarOutputStream(new FileOutputStream(actualOutputJar))) {
+             JarOutputStream jos = new JarOutputStream(Files.newOutputStream(actualOutputJar.toPath()))) {
 
             Manifest manifest = jarFile.getManifest();
             if (manifest != null) {
@@ -119,7 +137,7 @@ public class AnnotationInjector {
 
                 try (InputStream is = jarFile.getInputStream(entry)) {
                     if (name.endsWith(".class")) {
-                        byte[] classBytes = is.readAllBytes();
+                        byte[] classBytes = readAllBytes(is);
                         byte[] modifiedBytes = processClass(classBytes, name);
 
                         jos.putNextEntry(new JarEntry(name));
@@ -132,7 +150,7 @@ public class AnnotationInjector {
                         }
                     } else {
                         jos.putNextEntry(new JarEntry(name));
-                        is.transferTo(jos);
+                        transferTo(is, jos);
                         jos.closeEntry();
                     }
                 }

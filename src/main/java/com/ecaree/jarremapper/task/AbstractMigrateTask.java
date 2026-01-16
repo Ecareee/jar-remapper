@@ -24,18 +24,25 @@ public abstract class AbstractMigrateTask extends DefaultTask {
     @Setter
     private JarRemapperExtension extension;
 
+    @Internal
     protected abstract File getSourceDir();
 
+    @Internal
     protected abstract File getTargetDir();
 
+    @Internal
     protected abstract File getBackupDir();
 
+    @Internal
     protected abstract File getReportsDir();
 
+    @Internal
     protected abstract String getReportName();
 
+    @Internal
     protected abstract String getFileExtension();
 
+    @Internal
     protected abstract String getFileTypeDescription();
 
     @TaskAction
@@ -66,7 +73,7 @@ public abstract class AbstractMigrateTask extends DefaultTask {
 
         String ext = getFileExtension();
         int[] fileCount = {0};
-        Files.walkFileTree(targetDir.toPath(), new SimpleFileVisitor<>() {
+        Files.walkFileTree(targetDir.toPath(), new SimpleFileVisitor<Path>() {
             @Nonnull
             @Override
             public FileVisitResult visitFile(@Nonnull Path file, @Nonnull BasicFileAttributes attrs) {

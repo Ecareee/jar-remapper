@@ -11,6 +11,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Comparator;
+import java.util.stream.Stream;
 
 public class FileUtils {
     /**
@@ -20,7 +21,7 @@ public class FileUtils {
         Path sourcePath = source.toPath();
         Path targetPath = target.toPath();
 
-        Files.walkFileTree(sourcePath, new SimpleFileVisitor<>() {
+        Files.walkFileTree(sourcePath, new SimpleFileVisitor<Path>() {
             @Nonnull
             @Override
             public FileVisitResult preVisitDirectory(@Nonnull Path dir, @Nonnull BasicFileAttributes attrs) throws IOException {
@@ -45,7 +46,7 @@ public class FileUtils {
     public static void deleteDirectory(File directory) throws IOException {
         if (!directory.exists()) return;
 
-        try (var paths = Files.walk(directory.toPath())) {
+        try (Stream<Path> paths = Files.walk(directory.toPath())) {
             paths.sorted(Comparator.reverseOrder())
                     .forEach(p -> {
                         try {
@@ -64,12 +65,12 @@ public class FileUtils {
     }
 
     public static String readFileToString(File file) throws IOException {
-        return Files.readString(file.toPath());
+        return new String(Files.readAllBytes(file.toPath()));
     }
 
     public static void writeStringToFile(File file, String content) throws IOException {
         ensureDirectory(file.getParentFile());
-        Files.writeString(file.toPath(), content);
+        Files.write(file.toPath(), content.getBytes());
     }
 
     public static void copyFile(File source, File target) throws IOException {

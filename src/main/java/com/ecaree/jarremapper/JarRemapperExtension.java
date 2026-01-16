@@ -3,7 +3,9 @@ package com.ecaree.jarremapper;
 import lombok.Getter;
 import org.gradle.api.Project;
 import org.gradle.api.file.DirectoryProperty;
+import org.gradle.api.file.ProjectLayout;
 import org.gradle.api.file.RegularFileProperty;
+import org.gradle.api.model.ObjectFactory;
 import org.gradle.api.provider.Property;
 
 import java.io.File;
@@ -124,8 +126,8 @@ public class JarRemapperExtension {
 
     public JarRemapperExtension(Project project) {
         this.project = project;
-        var objects = project.getObjects();
-        var layout = project.getLayout();
+        ObjectFactory objects = project.getObjects();
+        ProjectLayout layout = project.getLayout();
 
         this.mappingsYaml = objects.fileProperty();
         this.mappingsSpecialSource = objects.fileProperty();

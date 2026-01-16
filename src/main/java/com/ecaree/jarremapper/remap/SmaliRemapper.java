@@ -28,7 +28,6 @@ import net.md_5.specialsource.JarMapping;
 import javax.annotation.Nonnull;
 import java.io.BufferedInputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -40,7 +39,6 @@ import java.util.List;
  * Smali 重映射
  * 使用 smali -> dex -> remap dex -> baksmali 流程
  */
-@SuppressWarnings("ClassCanBeRecord")
 @Log
 @RequiredArgsConstructor
 public class SmaliRemapper {
@@ -125,10 +123,10 @@ public class SmaliRemapper {
     }
 
     private void remapDex(File inputDex, File outputDex) throws IOException {
-        JarMapping jarMapping = mappingData.jarMapping();
+        JarMapping jarMapping = mappingData.getJarMapping();
 
         DexBackedDexFile dexFile;
-        try (BufferedInputStream bis = new BufferedInputStream(new FileInputStream(inputDex))) {
+        try (BufferedInputStream bis = new BufferedInputStream(Files.newInputStream(inputDex.toPath()))) {
             dexFile = DexBackedDexFile.fromInputStream(Opcodes.getDefault(), bis);
         }
 
@@ -147,7 +145,7 @@ public class SmaliRemapper {
 
     private void disassembleDexToSmali(File dexFile, File outputDir) throws IOException {
         DexBackedDexFile dex;
-        try (BufferedInputStream bis = new BufferedInputStream(new FileInputStream(dexFile))) {
+        try (BufferedInputStream bis = new BufferedInputStream(Files.newInputStream(dexFile.toPath()))) {
             dex = DexBackedDexFile.fromInputStream(Opcodes.getDefault(), bis);
         }
 
@@ -236,7 +234,12 @@ public class SmaliRemapper {
             }
 
             // 恢复数组维度
-            return "[".repeat(Math.max(0, arrayDim)) + baseType;
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < arrayDim; i++) {
+                sb.append('[');
+            }
+            sb.append(baseType);
+            return sb.toString();
         }
 
         private String remapFieldName(String owner, String name) {

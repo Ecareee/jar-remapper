@@ -86,16 +86,16 @@ public class MappingLoaderTest {
         assertEquals(1, data.getFieldCount(), "Should have 1 field mapping");
         assertEquals(1, data.getMethodCount(), "Should have 1 method mapping");
 
-        JarMapping jarMapping = data.jarMapping();
+        JarMapping jarMapping = data.getJarMapping();
         assertEquals("com/example/TestClass", jarMapping.classes.get("a/b"));
 
         MappingEntry classEntry = data.getClassEntry("com/example/TestClass");
         assertNotNull(classEntry, "Should find class mapping entry");
-        assertEquals("Test class", classEntry.comment());
+        assertEquals("Test class", classEntry.getComment());
 
         MappingEntry fieldEntry = data.getFieldEntry("com/example/TestClass", "mField");
         assertNotNull(fieldEntry, "Should find field mapping entry");
-        assertEquals("Test field", fieldEntry.comment());
+        assertEquals("Test field", fieldEntry.getComment());
     }
 
     @Test
@@ -105,7 +105,7 @@ public class MappingLoaderTest {
         assertNotNull(data, "Mapping data should not be null");
         assertEquals(1, data.getClassCount(), "Should have 1 class mapping");
 
-        JarMapping jarMapping = data.jarMapping();
+        JarMapping jarMapping = data.getJarMapping();
         assertEquals("com/example/TestClass", jarMapping.classes.get("a/b"));
     }
 
@@ -116,7 +116,7 @@ public class MappingLoaderTest {
         assertNotNull(data, "Mapping data should not be null");
         assertEquals(1, data.getClassCount(), "Should have 1 class mapping");
 
-        JarMapping jarMapping = data.jarMapping();
+        JarMapping jarMapping = data.getJarMapping();
         assertEquals("com/example/TestClass", jarMapping.classes.get("a/b"));
     }
 
@@ -127,7 +127,7 @@ public class MappingLoaderTest {
         assertNotNull(data, "Mapping data should not be null");
         assertEquals(1, data.getClassCount(), "Should have 1 class mapping");
 
-        JarMapping jarMapping = data.jarMapping();
+        JarMapping jarMapping = data.getJarMapping();
         assertEquals("com/example/TestClass", jarMapping.classes.get("a/b"));
     }
 
@@ -137,7 +137,7 @@ public class MappingLoaderTest {
 
         assertNotNull(data, "Mapping data should not be null");
 
-        JarMapping jarMapping = data.jarMapping();
+        JarMapping jarMapping = data.getJarMapping();
         assertFalse(jarMapping.classes.isEmpty(), "Should have class mappings");
     }
 
@@ -158,7 +158,7 @@ public class MappingLoaderTest {
 
         assertNotNull(reversed, "Reversed mapping should not be null");
 
-        JarMapping reversedMapping = reversed.jarMapping();
+        JarMapping reversedMapping = reversed.getJarMapping();
         assertEquals("a/b", reversedMapping.classes.get("com/example/TestClass"));
     }
 

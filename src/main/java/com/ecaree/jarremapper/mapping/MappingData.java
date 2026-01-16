@@ -1,5 +1,7 @@
 package com.ecaree.jarremapper.mapping;
 
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 import net.md_5.specialsource.JarMapping;
 
 import java.util.Map;
@@ -7,12 +9,21 @@ import java.util.Map;
 /**
  * 映射数据容器
  * 包含 SpecialSource 的 JarMapping 和带注释的 MappingEntry
- *
- * @param jarMapping SpecialSource 使用的映射对象
- * @param entries    带注释的映射条目
- *                   Key: readable 格式的标识
  */
-public record MappingData(JarMapping jarMapping, Map<String, MappingEntry> entries) {
+@Getter
+@RequiredArgsConstructor
+public class MappingData {
+    /**
+     * SpecialSource 使用的映射对象
+     */
+    private final JarMapping jarMapping;
+
+    /**
+     * 带注释的映射条目
+     * Key: readable 格式的标识
+     */
+    private final Map<String, MappingEntry> entries;
+
     /**
      * 根据可读类名查找类映射条目
      */

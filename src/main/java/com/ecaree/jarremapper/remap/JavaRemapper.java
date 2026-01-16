@@ -30,7 +30,6 @@ import java.util.Map;
  * Java 重映射
  * 使用 JavaParser 进行 AST 级别重映射
  */
-@SuppressWarnings("ClassCanBeRecord")
 @Log
 @RequiredArgsConstructor
 public class JavaRemapper {
@@ -94,7 +93,7 @@ public class JavaRemapper {
             return;
         }
 
-        JarMapping jarMapping = mappingData.jarMapping();
+        JarMapping jarMapping = mappingData.getJarMapping();
 
         if (remapMode == JavaRemapperMode.TYPES_ONLY) {
             cu.accept(new TypesOnlyRemapper(jarMapping), null);
@@ -288,7 +287,7 @@ public class JavaRemapper {
         }
 
         private String remapFieldName(String fieldName) {
-            for (Map.Entry<String, String> entry : mappingData.jarMapping().fields.entrySet()) {
+            for (Map.Entry<String, String> entry : mappingData.getJarMapping().fields.entrySet()) {
                 String key = entry.getKey();
                 int slashIdx = key.lastIndexOf('/');
                 if (slashIdx >= 0) {
@@ -302,7 +301,7 @@ public class JavaRemapper {
         }
 
         private String remapMethodName(String methodName) {
-            for (Map.Entry<String, String> entry : mappingData.jarMapping().methods.entrySet()) {
+            for (Map.Entry<String, String> entry : mappingData.getJarMapping().methods.entrySet()) {
                 String key = entry.getKey();
                 int spaceIdx = key.indexOf(' ');
                 if (spaceIdx > 0) {

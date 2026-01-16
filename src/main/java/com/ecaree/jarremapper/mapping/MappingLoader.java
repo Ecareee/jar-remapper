@@ -7,10 +7,10 @@ import org.yaml.snakeyaml.constructor.Constructor;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -39,7 +39,7 @@ public class MappingLoader {
         LoaderOptions options = new LoaderOptions();
         Yaml yaml = new Yaml(new Constructor(YamlMappingModel.class, options));
 
-        try (InputStream is = new FileInputStream(yamlFile)) {
+        try (InputStream is = Files.newInputStream(yamlFile.toPath())) {
             YamlMappingModel model = yaml.load(is);
             return convertYamlToMappingData(model);
         }
@@ -86,7 +86,7 @@ public class MappingLoader {
         JarMapping reversed = new JarMapping();
         Map<String, MappingEntry> reversedEntries = new HashMap<>();
 
-        JarMapping orig = original.jarMapping();
+        JarMapping orig = original.getJarMapping();
 
         for (Map.Entry<String, String> entry : orig.packages.entrySet()) {
             reversed.packages.put(entry.getValue(), entry.getKey());
@@ -128,34 +128,34 @@ public class MappingLoader {
             reversed.methods.put(newKey, obfName);
         }
 
-        for (Map.Entry<String, MappingEntry> entry : original.entries().entrySet()) {
+        for (Map.Entry<String, MappingEntry> entry : original.getEntries().entrySet()) {
             MappingEntry orig_entry = entry.getValue();
             MappingEntry reversedEntry;
 
-            switch (orig_entry.type()) {
+            switch (orig_entry.getType()) {
                 case CLASS:
                     reversedEntry = MappingEntry.forClass(
-                            orig_entry.readableName(),
-                            orig_entry.obfName(),
-                            orig_entry.comment());
+                            orig_entry.getReadableName(),
+                            orig_entry.getObfName(),
+                            orig_entry.getComment());
                     break;
                 case FIELD:
                     reversedEntry = MappingEntry.forField(
-                            orig_entry.readableOwner(), orig_entry.readableName(), orig_entry.readableDescriptor(),
-                            orig_entry.obfOwner(), orig_entry.obfName(), orig_entry.obfDescriptor(),
-                            orig_entry.comment());
+                            orig_entry.getReadableOwner(), orig_entry.getReadableName(), orig_entry.getReadableDescriptor(),
+                            orig_entry.getObfOwner(), orig_entry.getObfName(), orig_entry.getObfDescriptor(),
+                            orig_entry.getComment());
                     break;
                 case METHOD:
                     reversedEntry = MappingEntry.forMethod(
-                            orig_entry.readableOwner(), orig_entry.readableName(), orig_entry.readableDescriptor(),
-                            orig_entry.obfOwner(), orig_entry.obfName(), orig_entry.obfDescriptor(),
-                            orig_entry.comment());
+                            orig_entry.getReadableOwner(), orig_entry.getReadableName(), orig_entry.getReadableDescriptor(),
+                            orig_entry.getObfOwner(), orig_entry.getObfName(), orig_entry.getObfDescriptor(),
+                            orig_entry.getComment());
                     break;
                 default:
                     continue;
             }
 
-            reversedEntries.put(reversedEntry.readableKey(), reversedEntry);
+            reversedEntries.put(reversedEntry.getReadableKey(), reversedEntry);
         }
 
         return new MappingData(reversed, reversedEntries);
@@ -177,7 +177,7 @@ public class MappingLoader {
 
             MappingEntry classEntry = MappingEntry.forClass(
                     obfClass, readableClass, classMapping.getComment());
-            entries.put(classEntry.readableKey(), classEntry);
+            entries.put(classEntry.getReadableKey(), classEntry);
 
             if (classMapping.getFields() != null) {
                 for (YamlMappingModel.FieldMapping fieldMapping : classMapping.getFields()) {
@@ -190,7 +190,7 @@ public class MappingLoader {
                             obfClass, fieldMapping.getObfuscated(), fieldMapping.getType(),
                             readableClass, fieldMapping.getReadable(), readableDescriptor,
                             fieldMapping.getComment());
-                    entries.put(fieldEntry.readableKey(), fieldEntry);
+                    entries.put(fieldEntry.getReadableKey(), fieldEntry);
                 }
             }
 
@@ -205,7 +205,7 @@ public class MappingLoader {
                             obfClass, methodMapping.getObfuscated(), methodMapping.getDescriptor(),
                             readableClass, methodMapping.getReadable(), readableDescriptor,
                             methodMapping.getComment());
-                    entries.put(methodEntry.readableKey(), methodEntry);
+                    entries.put(methodEntry.getReadableKey(), methodEntry);
                 }
             }
         }
@@ -221,7 +221,7 @@ public class MappingLoader {
             String readableClass = entry.getValue();
 
             MappingEntry classEntry = MappingEntry.forClass(obfClass, readableClass, null);
-            entries.put(classEntry.readableKey(), classEntry);
+            entries.put(classEntry.getReadableKey(), classEntry);
         }
 
         for (Map.Entry<String, String> entry : jarMapping.fields.entrySet()) {
@@ -258,7 +258,7 @@ public class MappingLoader {
                     obfOwner, obfName, obfDesc,
                     readableOwner, readableName, obfDesc != null ? remapDescriptor(obfDesc, jarMapping) : null,
                     null);
-            entries.put(fieldEntry.readableKey(), fieldEntry);
+            entries.put(fieldEntry.getReadableKey(), fieldEntry);
         }
 
         for (Map.Entry<String, String> entry : jarMapping.methods.entrySet()) {
@@ -284,7 +284,7 @@ public class MappingLoader {
                     obfOwner, obfName, obfDescriptor,
                     readableOwner, readableName, readableDescriptor,
                     null);
-            entries.put(methodEntry.readableKey(), methodEntry);
+            entries.put(methodEntry.getReadableKey(), methodEntry);
         }
 
         return new MappingData(jarMapping, entries);

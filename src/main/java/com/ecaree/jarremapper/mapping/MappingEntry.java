@@ -1,19 +1,25 @@
 package com.ecaree.jarremapper.mapping;
 
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+
 /**
  * 统一的映射条目
  * 用于存储类/字段/方法的映射信息及注释
  */
-public record MappingEntry(
-        Type type,
-        String obfOwner,      // 类：null，字段/方法：所属类（内部格式）
-        String obfName,       // 混淆名称
-        String obfDescriptor, // 类：null，字段：类型描述符，方法：方法描述符
-        String readableOwner,
-        String readableName,
-        String readableDescriptor,
-        String comment
-) {
+@Getter
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
+public class MappingEntry {
+    private final Type type;
+    private final String obfOwner;      // 类：null，字段/方法：所属类（内部格式）
+    private final String obfName;       // 混淆名称
+    private final String obfDescriptor; // 类：null，字段：类型描述符，方法：方法描述符
+    private final String readableOwner;
+    private final String readableName;
+    private final String readableDescriptor;
+    private final String comment;
+
     public static MappingEntry forClass(String obfName, String readableName, String comment) {
         return new MappingEntry(Type.CLASS, null, obfName, null, null, readableName, null, comment);
     }
@@ -42,12 +48,17 @@ public record MappingEntry(
      * 字段：readableOwner/readableName
      * 方法：readableOwner/readableName readableDescriptor
      */
-    public String readableKey() {
-        return switch (type) {
-            case CLASS -> readableName;
-            case FIELD -> readableOwner + "/" + readableName;
-            case METHOD -> readableOwner + "/" + readableName + " " + readableDescriptor;
-        };
+    public String getReadableKey() {
+        switch (type) {
+            case CLASS:
+                return readableName;
+            case FIELD:
+                return readableOwner + "/" + readableName;
+            case METHOD:
+                return readableOwner + "/" + readableName + " " + readableDescriptor;
+            default:
+                throw new IllegalStateException("Unknown type: " + type);
+        }
     }
 
     public enum Type {
