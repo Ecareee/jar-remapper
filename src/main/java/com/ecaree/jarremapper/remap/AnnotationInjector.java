@@ -2,7 +2,6 @@ package com.ecaree.jarremapper.remap;
 
 import com.ecaree.jarremapper.annotation.MappingComment;
 import com.ecaree.jarremapper.annotation.MappingInfo;
-import com.ecaree.jarremapper.annotation.OriginalName;
 import com.ecaree.jarremapper.mapping.MappingData;
 import com.ecaree.jarremapper.mapping.MappingEntry;
 import lombok.RequiredArgsConstructor;
@@ -35,7 +34,6 @@ import java.util.jar.Manifest;
 @RequiredArgsConstructor
 public class AnnotationInjector {
     private static final String MAPPING_COMMENT_DESC = Type.getDescriptor(MappingComment.class);
-    private static final String ORIGINAL_NAME_DESC = Type.getDescriptor(OriginalName.class);
     private static final String MAPPING_INFO_DESC = Type.getDescriptor(MappingInfo.class);
 
     private final MappingData mappingData;
@@ -52,13 +50,7 @@ public class AnnotationInjector {
             av.visitEnd();
         }
 
-        AnnotationVisitor av = target.visitAnnotation(ORIGINAL_NAME_DESC);
-        visitIfNotNull(av, "owner", entry.obfOwner());
-        av.visit("name", entry.obfName());
-        visitIfNotNull(av, "descriptor", entry.obfDescriptor());
-        av.visitEnd();
-
-        av = target.visitAnnotation(MAPPING_INFO_DESC);
+        AnnotationVisitor av = target.visitAnnotation(MAPPING_INFO_DESC);
         visitIfNotNull(av, "obfOwner", entry.obfOwner());
         av.visit("obfName", entry.obfName());
         visitIfNotNull(av, "obfDescriptor", entry.obfDescriptor());
