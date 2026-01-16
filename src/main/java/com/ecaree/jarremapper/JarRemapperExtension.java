@@ -14,91 +14,111 @@ public class JarRemapperExtension {
 
     /**
      * YAML 映射文件路径
+     * 与 mappingsSpecialSource 二选一，若两者都存在优先使用 YAML
+     * 默认 mappings.yaml
      */
     private final RegularFileProperty mappingsYaml;
 
     /**
-     * SpecialSource 格式映射文件路径（srg/csrg/tsrg/proguard，与 mappingsYaml 二选一）
+     * SpecialSource 格式映射文件路径
+     * srg/csrg/tsrg/proguard，与 mappingsYaml 二选一，若两者都存在优先使用 YAML
+     * 可选
      */
     private final RegularFileProperty mappingsSpecialSource;
 
     /**
      * 输入 JAR 文件
+     * 默认 original/classes.jar
      */
     private final RegularFileProperty inputJar;
 
     /**
      * 输出 JAR 文件
+     * 默认 original/classes-readable.jar
      */
     private final RegularFileProperty outputJar;
 
     /**
      * 是否启用 JAR 重映射
+     * 默认 true
      */
     private final Property<Boolean> remapJar;
 
     /**
      * 是否注入字节码注解
+     * 默认 true
      */
     private final Property<Boolean> injectBytecodeAnnotations;
 
     /**
-     * 是否在注解中包含 readable 信息，默认 false，因为这些信息可从代码上下文获取
+     * 是否在注解中包含 readable 信息
+     * 默认 false，因为这些信息可从代码上下文获取
      */
     private final Property<Boolean> injectReadableInfo;
 
     /**
      * Smali 输入目录
+     * 默认 src/main/smali/classes
      */
     private final DirectoryProperty smaliInputDir;
 
     /**
      * Smali 输出目录
+     * 默认 build/generated/remappedSmali/classes
      */
     private final DirectoryProperty smaliOutputDir;
 
     /**
      * 是否启用 Smali 重映射
+     * 默认 true
      */
     private final Property<Boolean> remapSmali;
 
     /**
      * Smali 备份目录
+     * 默认 src/main/smali/classes-obf-backup
      */
     private final DirectoryProperty smaliBackupDir;
 
     /**
      * 是否启用 Smali 迁移任务
+     * 默认 true
      */
     private final Property<Boolean> enableSmaliMigrateTask;
 
     /**
      * Java 源码输入目录
+     * 默认 src/main/java
      */
     private final DirectoryProperty javaInputDir;
 
     /**
      * Java 源码输出目录
+     * 默认 build/generated/remappedJava
      */
     private final DirectoryProperty javaOutputDir;
 
     /**
      * Java 重映射模式
+     * 默认 TYPES_ONLY
      */
     private final Property<JavaRemapperMode> remapMode;
 
     /**
      * Java 备份目录
+     * 默认 src/main/java-obf-backup
      */
     private final DirectoryProperty javaBackupDir;
 
     /**
      * 是否启用 Java 迁移任务
+     * 默认 true
      */
     private final Property<Boolean> enableJavaMigrateTask;
 
     /**
      * 报告输出目录
+     * 默认 build/reports/jarRemapper
      */
     private final DirectoryProperty reportsDir;
 
@@ -148,6 +168,10 @@ public class JarRemapperExtension {
         reportsDir.convention(layout.getBuildDirectory().dir("reports/jarRemapper"));
     }
 
+    /**
+     * 获取有效的映射文件
+     * 优先使用 YAML
+     */
     public File getEffectiveMappingFile() {
         if (mappingsYaml.isPresent() && mappingsYaml.get().getAsFile().exists()) {
             return mappingsYaml.get().getAsFile();
