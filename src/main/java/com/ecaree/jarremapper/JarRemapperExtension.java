@@ -43,6 +43,11 @@ public class JarRemapperExtension {
     private final Property<Boolean> injectBytecodeAnnotations;
 
     /**
+     * 是否在注解中包含 readable 信息，默认 false，因为这些信息可从代码上下文获取
+     */
+    private final Property<Boolean> injectReadableInfo;
+
+    /**
      * Smali 输入目录
      */
     private final DirectoryProperty smaliInputDir;
@@ -108,6 +113,7 @@ public class JarRemapperExtension {
         this.outputJar = objects.fileProperty();
         this.remapJar = objects.property(Boolean.class);
         this.injectBytecodeAnnotations = objects.property(Boolean.class);
+        this.injectReadableInfo = objects.property(Boolean.class);
         this.smaliInputDir = objects.directoryProperty();
         this.smaliOutputDir = objects.directoryProperty();
         this.remapSmali = objects.property(Boolean.class);
@@ -125,6 +131,7 @@ public class JarRemapperExtension {
         outputJar.convention(layout.getProjectDirectory().file("original/classes-readable.jar"));
         remapJar.convention(true);
         injectBytecodeAnnotations.convention(true);
+        injectReadableInfo.convention(false);
 
         smaliInputDir.convention(layout.getProjectDirectory().dir("src/main/smali/classes"));
         smaliOutputDir.convention(layout.getBuildDirectory().dir("generated/remappedSmali/classes"));

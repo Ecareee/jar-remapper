@@ -7,6 +7,7 @@ import com.ecaree.jarremapper.remap.AnnotationInjector;
 import lombok.Getter;
 import lombok.Setter;
 import org.gradle.api.DefaultTask;
+import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFile;
 import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.OutputFile;
@@ -36,10 +37,16 @@ public class InjectJarAnnotationsTask extends DefaultTask {
         return extension.getOutputJar().get().getAsFile();
     }
 
+    @Input
+    public boolean getIncludeReadableInfo() {
+        return extension.getInjectReadableInfo().get();
+    }
+
     @TaskAction
     public void injectAnnotations() throws IOException {
         File jar = getInputJar();
         File mappingFile = getMappingFile();
+        boolean includeReadable = getIncludeReadableInfo();
 
         if (!jar.exists()) {
             throw new RuntimeException("JAR file does not exist: " + jar + ", please run remapJar task first");
@@ -52,10 +59,11 @@ public class InjectJarAnnotationsTask extends DefaultTask {
         getLogger().lifecycle("Starting annotation injection");
         getLogger().lifecycle("JAR: {}", jar);
         getLogger().lifecycle("Mapping: {}", mappingFile);
+        getLogger().lifecycle("Include readable info: {}", includeReadable);
 
         MappingData mappingData = MappingLoader.load(mappingFile);
 
-        AnnotationInjector injector = new AnnotationInjector(mappingData);
+        AnnotationInjector injector = new AnnotationInjector(mappingData, includeReadable);
         injector.injectAnnotations(jar, jar);
 
         getLogger().lifecycle("Annotation injection completed");

@@ -4,7 +4,6 @@ import com.ecaree.jarremapper.annotation.MappingComment;
 import com.ecaree.jarremapper.annotation.MappingInfo;
 import com.ecaree.jarremapper.mapping.MappingData;
 import com.ecaree.jarremapper.mapping.MappingEntry;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.java.Log;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
@@ -31,17 +30,30 @@ import java.util.jar.Manifest;
  */
 @SuppressWarnings("ClassCanBeRecord")
 @Log
-@RequiredArgsConstructor
 public class AnnotationInjector {
     private static final String MAPPING_COMMENT_DESC = Type.getDescriptor(MappingComment.class);
     private static final String MAPPING_INFO_DESC = Type.getDescriptor(MappingInfo.class);
 
     private final MappingData mappingData;
+    private final boolean includeReadableInfo;
+
+    public AnnotationInjector(MappingData mappingData) {
+        this(mappingData, false);
+    }
+
+    public AnnotationInjector(MappingData mappingData, boolean includeReadableInfo) {
+        this.mappingData = mappingData;
+        this.includeReadableInfo = includeReadableInfo;
+    }
+
+    private static void visitIfNotNull(AnnotationVisitor av, String name, String value) {
+        if (value != null) av.visit(name, value);
+    }
 
     /**
      * 注入所有映射注解到目标
      */
-    private static void injectAnnotations(MappingEntry entry, AnnotationTarget target) {
+    private void injectAnnotations(MappingEntry entry, AnnotationTarget target) {
         if (entry == null) return;
 
         if (entry.hasComment()) {
@@ -54,14 +66,13 @@ public class AnnotationInjector {
         visitIfNotNull(av, "obfOwner", entry.obfOwner());
         av.visit("obfName", entry.obfName());
         visitIfNotNull(av, "obfDescriptor", entry.obfDescriptor());
-        visitIfNotNull(av, "readableOwner", entry.readableOwner());
-        av.visit("readableName", entry.readableName());
-        visitIfNotNull(av, "readableDescriptor", entry.readableDescriptor());
-        av.visitEnd();
-    }
 
-    private static void visitIfNotNull(AnnotationVisitor av, String name, String value) {
-        if (value != null) av.visit(name, value);
+        if (includeReadableInfo) {
+            visitIfNotNull(av, "readableOwner", entry.readableOwner());
+            av.visit("readableName", entry.readableName());
+            visitIfNotNull(av, "readableDescriptor", entry.readableDescriptor());
+        }
+        av.visitEnd();
     }
 
     /**
@@ -76,6 +87,7 @@ public class AnnotationInjector {
         log.info("Starting annotation injection");
         log.info("Input: " + inputJar);
         log.info("Output: " + outputJar);
+        log.info("Include readable info: " + includeReadableInfo);
 
         File tempFile = null;
         File actualOutputJar = outputJar;
@@ -144,7 +156,7 @@ public class AnnotationInjector {
 
         ClassReader reader = new ClassReader(classBytes);
         ClassWriter writer = new ClassWriter(reader, 0);
-        ClassVisitor visitor = new AnnotationInjectingClassVisitor(writer, className, mappingData);
+        ClassVisitor visitor = new AnnotationInjectingClassVisitor(writer, className);
 
         reader.accept(visitor, 0);
         return writer.toByteArray();
@@ -155,14 +167,12 @@ public class AnnotationInjector {
         AnnotationVisitor visitAnnotation(String descriptor);
     }
 
-    private static class AnnotationInjectingClassVisitor extends ClassVisitor {
+    private class AnnotationInjectingClassVisitor extends ClassVisitor {
         private final String className;
-        private final MappingData mappingData;
 
-        AnnotationInjectingClassVisitor(ClassWriter writer, String className, MappingData mappingData) {
+        AnnotationInjectingClassVisitor(ClassWriter writer, String className) {
             super(Opcodes.ASM9, writer);
             this.className = className;
-            this.mappingData = mappingData;
         }
 
         @Override
