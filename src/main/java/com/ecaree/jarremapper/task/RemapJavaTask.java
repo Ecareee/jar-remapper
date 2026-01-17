@@ -32,6 +32,7 @@ public class RemapJavaTask extends DefaultTask {
     }
 
     @InputFile
+    @Optional
     public File getMappingFile() {
         return extension.getEffectiveMappingFile();
     }

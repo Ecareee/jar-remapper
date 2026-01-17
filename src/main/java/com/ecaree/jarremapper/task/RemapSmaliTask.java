@@ -31,6 +31,7 @@ public class RemapSmaliTask extends DefaultTask {
     }
 
     @InputFile
+    @Optional
     public File getMappingFile() {
         return extension.getEffectiveMappingFile();
     }
