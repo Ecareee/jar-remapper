@@ -48,13 +48,13 @@ public class MappingLoader {
     /**
      * 加载 SpecialSource 格式映射（SRG/CSRG/TSRG/ProGuard）
      * SpecialSource 的 JarMapping.loadMappings 方法会自动检测格式：
-     * - 以 "PK:" 开头 → SRG 包映射
-     * - 以 "CL:" 开头 → SRG 类映射
-     * - 以 "FD:" 开头 → SRG 字段映射
-     * - 以 "MD:" 开头 → SRG 方法映射
-     * - 包含 " -> " → ProGuard 格式
-     * - 以 "\t" 开头 → TSRG 格式的成员
-     * - 其他 → CSRG 格式
+     * - 以 "PK:" 开头 -> SRG 包映射
+     * - 以 "CL:" 开头 -> SRG 类映射
+     * - 以 "FD:" 开头 -> SRG 字段映射
+     * - 以 "MD:" 开头 -> SRG 方法映射
+     * - 包含 " -> " -> ProGuard 格式
+     * - 以 "\t" 开头 -> TSRG 格式的成员
+     * - 其他 -> CSRG 格式
      */
     public static MappingData loadSpecialSource(File srgFile) throws IOException {
         JarMapping jarMapping = new JarMapping();

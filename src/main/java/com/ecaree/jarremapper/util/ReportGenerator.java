@@ -58,7 +58,7 @@ public class ReportGenerator {
 
             writer.println("[Summary]");
             for (String s : summary) {
-                writer.println("  " + s);
+                writer.println(s);
             }
             writer.println();
 

@@ -163,8 +163,8 @@ public class IntegrationTest {
         assertEquals(3, mappingData.getClassCount(), "Should have 3 class mappings");
 
         File remappedJar = tempDir.resolve("remapped.jar").toFile();
-        JarRemapper jarService = new JarRemapper(mappingData);
-        jarService.remapJar(obfuscatedJar, remappedJar);
+        JarRemapper remapper = new JarRemapper(mappingData);
+        remapper.remapJar(obfuscatedJar, remappedJar);
 
         assertTrue(remappedJar.exists(), "Remapped JAR should exist");
 
@@ -209,8 +209,8 @@ public class IntegrationTest {
                 """;
         Files.writeString(new File(aDir, "A.smali").toPath(), smali);
 
-        SmaliRemapper smaliService = new SmaliRemapper(mappingData);
-        smaliService.remapSmali(smaliInput, smaliOutput);
+        SmaliRemapper remapper = new SmaliRemapper(mappingData);
+        remapper.remapSmali(smaliInput, smaliOutput);
 
         File expectedFile = new File(smaliOutput, "com/example/app/MainActivity.smali");
         assertTrue(expectedFile.exists(), "Remapped smali file should exist");
@@ -248,8 +248,8 @@ public class IntegrationTest {
                 """;
         Files.writeString(new File(aDir, "A.java").toPath(), java);
 
-        JavaRemapper javaService = new JavaRemapper(mappingData);
-        int count = javaService.remapJavaSource(javaInput, javaOutput);
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        int count = remapper.remapJavaSource(javaInput, javaOutput);
 
         assertEquals(1, count, "Should process 1 file");
 

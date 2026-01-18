@@ -74,8 +74,8 @@ public class SmaliRemapperTest {
 
     @Test
     public void testRemapSmali() throws IOException {
-        SmaliRemapper service = new SmaliRemapper(mappingData);
-        service.remapSmali(smaliInputDir, smaliOutputDir);
+        SmaliRemapper remapper = new SmaliRemapper(mappingData);
+        remapper.remapSmali(smaliInputDir, smaliOutputDir);
 
         File expectedFile = new File(smaliOutputDir, "com/example/TestClass.smali");
         assertTrue(expectedFile.exists(), "Remapped smali file should exist");
@@ -100,8 +100,8 @@ public class SmaliRemapperTest {
                 .end method
                 """);
 
-        SmaliRemapper service = new SmaliRemapper(mappingData);
-        service.remapSmali(smaliInputDir, smaliOutputDir);
+        SmaliRemapper remapper = new SmaliRemapper(mappingData);
+        remapper.remapSmali(smaliInputDir, smaliOutputDir);
 
         File callerOutput = new File(smaliOutputDir, "com/example/Helper.smali");
         assertTrue(callerOutput.exists(), "Remapped caller smali file should exist");
@@ -116,8 +116,8 @@ public class SmaliRemapperTest {
         FileUtils.ensureDirectory(emptyDir);
         File outputDir = tempDir.resolve("empty-output").toFile();
 
-        SmaliRemapper service = new SmaliRemapper(mappingData);
-        service.remapSmali(emptyDir, outputDir);
+        SmaliRemapper remapper = new SmaliRemapper(mappingData);
+        remapper.remapSmali(emptyDir, outputDir);
 
         assertTrue(outputDir.exists(), "Output directory should be created");
     }

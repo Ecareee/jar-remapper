@@ -63,8 +63,8 @@ public class RemapJarTask extends DefaultTask {
                 mappingData.getFieldCount(),
                 mappingData.getMethodCount());
 
-        JarRemapper service = new JarRemapper(mappingData);
-        service.remapJar(inputJar, outputJar);
+        JarRemapper remapper = new JarRemapper(mappingData);
+        remapper.remapJar(inputJar, outputJar);
 
         getLogger().lifecycle("JAR remapping completed: {}", outputJar);
     }

@@ -64,8 +64,8 @@ public class RemapSmaliTask extends DefaultTask {
         MappingData mappingData = MappingLoader.load(mappingFile);
         getLogger().lifecycle("Loaded mappings: {} classes", mappingData.getClassCount());
 
-        SmaliRemapper service = new SmaliRemapper(mappingData);
-        service.remapSmali(inputDir, outputDir);
+        SmaliRemapper remapper = new SmaliRemapper(mappingData);
+        remapper.remapSmali(inputDir, outputDir);
 
         getLogger().lifecycle("Smali remapping completed: {}", outputDir);
     }

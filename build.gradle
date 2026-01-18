@@ -4,14 +4,14 @@ plugins {
     id 'java-gradle-plugin'
 }
 
-compileJava {
-    sourceCompatibility = JavaVersion.VERSION_1_8
-    targetCompatibility = JavaVersion.VERSION_1_8
+java {
+    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_1_8
+    withSourcesJar()
+    withJavadocJar()
 }
 
 compileTestJava {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_17
 }
 
 repositories {
@@ -80,10 +80,8 @@ dependencies {
     implementation 'com.github.javaparser:javaparser-symbol-solver-core:3.28.0'
 
     // 测试
-    testImplementation "org.junit.jupiter:junit-jupiter-api:5.14.2"
-    testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:5.14.2"
-    testRuntimeOnly "org.junit.platform:junit-platform-launcher:1.14.2"
-    testRuntimeOnly "org.junit.platform:junit-platform-engine:1.14.2"
+    testImplementation "org.junit.jupiter:junit-jupiter:5.14.2"
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testImplementation filteredGradleTestKit
 }
 
@@ -97,7 +95,7 @@ gradlePlugin {
 }
 
 tasks.withType(JavaCompile).configureEach {
-    options.encoding = "UTF-8"
+    options.encoding = 'UTF-8'
 }
 
 tasks.withType(Javadoc).configureEach {
@@ -109,7 +107,7 @@ tasks.named('test', Test) {
     useJUnitPlatform()
 
     testLogging {
-        events("passed", "skipped", "failed")
+        events('passed', 'skipped', 'failed')
         showExceptions = true
         showCauses = true
         showStackTraces = true
@@ -122,7 +120,6 @@ tasks.named('test', Test) {
     }
 }
 
-
 tasks.named('jar', Jar) {
     manifest {
         attributes(
@@ -131,19 +128,4 @@ tasks.named('jar', Jar) {
                 'Implementation-Vendor': group
         )
     }
-}
-
-tasks.register('sourcesJar', Jar) {
-    from sourceSets.main.allSource
-    archiveClassifier = 'sources'
-}
-
-tasks.register('javadocJar', Jar) {
-    from javadoc
-    archiveClassifier = 'javadoc'
-}
-
-artifacts {
-    archives sourcesJar
-    archives javadocJar
 }
