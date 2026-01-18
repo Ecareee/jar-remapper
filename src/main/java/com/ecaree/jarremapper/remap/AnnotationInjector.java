@@ -215,11 +215,42 @@ public class AnnotationInjector {
         @Override
         public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
             MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
-            injectAnnotations(
-                    mappingData.getMethodEntry(className, name, descriptor),
-                    desc -> mv.visitAnnotation(desc, true)
-            );
-            return mv;
+//            injectAnnotations(
+//                    mappingData.getMethodEntry(className, name, descriptor),
+//                    desc -> mv.visitAnnotation(desc, true)
+//            );
+            final MappingEntry entry = mappingData.getMethodEntry(className, name, descriptor);
+
+            if (entry == null) return mv;
+
+            /*
+             * 使用 new ClassWriter(classReader, 0) 时，ClassWriter.visitMethod() 返回 MethodWriter
+             * 此时 ClassReader.readMethod() 检测到 methodVisitor instanceof MethodWriter
+             * 会触发优化，调用 methodWriter.setMethodAttributesSource() 直接复制原始字节码，跳过所有 visit 调用
+             * 所以需要返回非 MethodWriter 的包装器
+             */
+            return new MethodVisitor(Opcodes.ASM9, mv) {
+                private boolean annotationsInjected = false;
+
+                private void ensureAnnotationsInjected() {
+                    if (!annotationsInjected) {
+                        annotationsInjected = true;
+                        injectAnnotations(entry, desc -> mv.visitAnnotation(desc, true));
+                    }
+                }
+
+                @Override
+                public void visitCode() {
+                    ensureAnnotationsInjected();
+                    super.visitCode();
+                }
+
+                @Override
+                public void visitEnd() {
+                    ensureAnnotationsInjected();
+                    super.visitEnd();
+                }
+            };
         }
     }
 }
