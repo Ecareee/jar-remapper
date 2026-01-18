@@ -12,6 +12,9 @@ java {
 
 compileTestJava {
     sourceCompatibility = targetCompatibility = JavaVersion.VERSION_17
+    javaCompiler = javaToolchains.compilerFor {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
 }
 
 repositories {
