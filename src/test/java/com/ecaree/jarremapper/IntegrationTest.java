@@ -1,6 +1,5 @@
 package com.ecaree.jarremapper;
 
-import com.ecaree.jarremapper.JarRemapperExtension.JavaRemapperMode;
 import com.ecaree.jarremapper.mapping.MappingData;
 import com.ecaree.jarremapper.mapping.MappingLoader;
 import com.ecaree.jarremapper.remap.AnnotationInjector;
@@ -249,7 +248,7 @@ public class IntegrationTest {
                 """;
         Files.writeString(new File(aDir, "A.java").toPath(), java);
 
-        JavaRemapper javaService = new JavaRemapper(mappingData, JavaRemapperMode.TYPES_ONLY);
+        JavaRemapper javaService = new JavaRemapper(mappingData);
         int count = javaService.remapJavaSource(javaInput, javaOutput);
 
         assertEquals(1, count, "Should process 1 file");

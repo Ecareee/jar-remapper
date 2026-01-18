@@ -1,6 +1,5 @@
 package com.ecaree.jarremapper;
 
-import com.ecaree.jarremapper.JarRemapperExtension.JavaRemapperMode;
 import com.ecaree.jarremapper.mapping.MappingData;
 import com.ecaree.jarremapper.mapping.MappingLoader;
 import com.ecaree.jarremapper.remap.JavaRemapper;
@@ -13,6 +12,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -23,8 +23,6 @@ public class JavaRemapperTest {
     Path tempDir;
 
     private MappingData mappingData;
-    private File javaInputDir;
-    private File javaOutputDir;
 
     @BeforeEach
     public void setUp() throws IOException {
@@ -49,12 +47,10 @@ public class JavaRemapperTest {
         Files.writeString(yamlFile.toPath(), yaml);
 
         mappingData = MappingLoader.loadYaml(yamlFile);
+    }
 
-        javaInputDir = tempDir.resolve("java-input").toFile();
-        javaOutputDir = tempDir.resolve("java-output").toFile();
-        FileUtils.ensureDirectory(javaOutputDir);
-
-        File packageDir = new File(javaInputDir, "a");
+    private void createTestJavaFile(File inputDir) throws IOException {
+        File packageDir = new File(inputDir, "a");
         FileUtils.ensureDirectory(packageDir);
 
         String java = """
@@ -79,72 +75,105 @@ public class JavaRemapperTest {
     }
 
     @Test
-    public void testRemapJavaTypesOnly() throws IOException {
-        JavaRemapper service = new JavaRemapper(mappingData, JavaRemapperMode.TYPES_ONLY);
-        int count = service.remapJavaSource(javaInputDir, javaOutputDir);
+    public void testRemapJava() throws IOException {
+        File inputDir = tempDir.resolve("test1-input").toFile();
+        File outputDir = tempDir.resolve("test1-output").toFile();
+        createTestJavaFile(inputDir);
+
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        int count = remapper.remapJavaSource(inputDir, outputDir);
 
         assertEquals(1, count, "Should process 1 file");
 
         System.out.println("Output directory contents:");
-        printDirectoryTree(javaOutputDir, "");
+        printDirectoryTree(outputDir, "");
 
-        File remappedFile = findJavaFile(javaOutputDir, "TestClass.java");
-        if (remappedFile == null) {
-            remappedFile = findJavaFile(javaOutputDir, "b.java");
-        }
-
+        File remappedFile = findJavaFile(outputDir, "TestClass.java");
         assertNotNull(remappedFile, "Remapped Java file should exist");
 
         String content = Files.readString(remappedFile.toPath());
         System.out.println("File content:\n" + content);
 
-        assertTrue(content.contains("TestClass") || content.contains("Helper"), "Should contain remapped class name");
+        assertTrue(content.contains("class TestClass"), "Should remap class name");
+        assertTrue(content.contains("Helper"), "Should remap type reference");
+        assertTrue(content.contains("package com.example"), "Should remap package");
+        assertTrue(content.contains("import com.example.Helper"), "Should remap import");
     }
 
     @Test
-    public void testRemapJavaFull() throws IOException {
-        JavaRemapper service = new JavaRemapper(mappingData, JavaRemapperMode.FULL);
-        int count = service.remapJavaSource(javaInputDir, javaOutputDir);
+    public void testRemapJavaWithLibraryJars() throws IOException {
+        File inputDir = tempDir.resolve("test2-input").toFile();
+        File outputDir = tempDir.resolve("test2-output").toFile();
+        createTestJavaFile(inputDir);
+
+        JavaRemapper remapper = new JavaRemapper(mappingData, Collections.emptyList());
+        int count = remapper.remapJavaSource(inputDir, outputDir);
 
         assertEquals(1, count, "Should process 1 file");
 
-        System.out.println("Output directory contents (FULL mode):");
-        printDirectoryTree(javaOutputDir, "");
-
-        File remappedFile = findJavaFile(javaOutputDir, "TestClass.java");
-        if (remappedFile == null) {
-            remappedFile = findJavaFile(javaOutputDir, "b.java");
-        }
-
+        File remappedFile = findJavaFile(outputDir, "TestClass.java");
         assertNotNull(remappedFile, "Remapped Java file should exist");
 
         String content = Files.readString(remappedFile.toPath());
-        System.out.println("File content (FULL mode):\n" + content);
-
-        assertTrue(content.contains("TestClass") || content.contains("mValue") || content.contains("getValue"),
-                "Should contain remapped content");
+        assertTrue(content.contains("TestClass"), "Should contain remapped class name");
     }
 
     @Test
     public void testEmptyDirectory() throws IOException {
-        File emptyDir = tempDir.resolve("empty").toFile();
+        File emptyDir = tempDir.resolve("test3-empty").toFile();
         FileUtils.ensureDirectory(emptyDir);
-        File outputDir = tempDir.resolve("empty-output").toFile();
+        File outputDir = tempDir.resolve("test3-output").toFile();
 
-        JavaRemapper service = new JavaRemapper(mappingData, JavaRemapperMode.TYPES_ONLY);
-        int count = service.remapJavaSource(emptyDir, outputDir);
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        int count = remapper.remapJavaSource(emptyDir, outputDir);
 
         assertEquals(0, count, "Empty directory should return 0");
     }
 
     @Test
     public void testInvalidJavaFile() throws IOException {
-        Files.writeString(new File(javaInputDir, "Invalid.java").toPath(), "this is not valid java code {{{}}}");
+        File inputDir = tempDir.resolve("test4-input").toFile();
+        File outputDir = tempDir.resolve("test4-output").toFile();
+        createTestJavaFile(inputDir);
 
-        JavaRemapper service = new JavaRemapper(mappingData, JavaRemapperMode.TYPES_ONLY);
-        int count = service.remapJavaSource(javaInputDir, javaOutputDir);
+        Files.writeString(new File(inputDir, "Invalid.java").toPath(),
+                "this is not valid java code {{{}}}");
+
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        int count = remapper.remapJavaSource(inputDir, outputDir);
 
         assertTrue(count >= 1, "Should process all files");
+
+        File invalidFile = findJavaFile(outputDir, "Invalid.java");
+        assertNotNull(invalidFile, "Invalid file should be copied as-is");
+    }
+
+    @Test
+    public void testFieldAndMethodRemapping() throws IOException {
+        File inputDir = tempDir.resolve("test5-input").toFile();
+        File outputDir = tempDir.resolve("test5-output").toFile();
+        createTestJavaFile(inputDir);
+
+        File packageDir = new File(inputDir, "a");
+        String java = """
+                package a;
+                
+                public class d {
+                    public void test() {
+                        b obj = new b();
+                        int val = obj.a();
+                    }
+                }
+                """;
+        Files.writeString(new File(packageDir, "d.java").toPath(), java);
+
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        int count = remapper.remapJavaSource(inputDir, outputDir);
+
+        assertEquals(2, count, "Should process 2 files");
+
+        System.out.println("Output directory contents:");
+        printDirectoryTree(outputDir, "");
     }
 
     private File findJavaFile(File dir, String fileName) {

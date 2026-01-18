@@ -1,3 +1,5 @@
+import org.gradle.api.internal.artifacts.dependencies.DefaultFileCollectionDependency
+
 plugins {
     id 'java-gradle-plugin'
 }
@@ -17,9 +19,41 @@ repositories {
     google()
 }
 
+// 居然把我自己的 javaparser 移除了，gradle api 的还在
+//configurations.configureEach {
+//    exclude group: 'com.github.javaparser', module: 'javaparser-core'
+//}
+
+// 移除 java-gradle-plugin 自动添加的 gradle api 和 gradleTestKit
+afterEvaluate {
+    configurations.api.dependencies.removeIf { dep ->
+        dep instanceof DefaultFileCollectionDependency
+    }
+    configurations.testImplementation.dependencies.removeIf { dep ->
+        dep instanceof DefaultFileCollectionDependency
+    }
+}
+
+// 排除 gradle api 自带的旧版本 javaparser，防止与我们自己的 javaparser 冲突
+def filteredGradleApi = files(
+        file("${gradle.gradleHomeDir}/lib").listFiles().findAll {
+            !it.name.contains('javaparser')
+        }
+)
+
+// 同样处理 gradleTestKit
+def filteredGradleTestKit = files(
+        file("${gradle.gradleHomeDir}/lib").listFiles().findAll {
+            !it.name.contains('javaparser')
+        },
+        file("${gradle.gradleHomeDir}/lib/plugins").listFiles().findAll {
+            !it.name.contains('javaparser')
+        }
+)
+
 dependencies {
-    // gradle api
-    implementation gradleApi()
+    // 过滤后的 gradle api
+    implementation filteredGradleApi
 
     // Lombok
     compileOnly 'org.projectlombok:lombok:1.18.42'
@@ -43,13 +77,14 @@ dependencies {
 
     // Java 重映射
     implementation 'com.github.javaparser:javaparser-core:3.28.0'
+    implementation 'com.github.javaparser:javaparser-symbol-solver-core:3.28.0'
 
     // 测试
     testImplementation "org.junit.jupiter:junit-jupiter-api:5.14.2"
     testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:5.14.2"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher:1.14.2"
     testRuntimeOnly "org.junit.platform:junit-platform-engine:1.14.2"
-    testImplementation gradleTestKit()
+    testImplementation filteredGradleTestKit
 }
 
 gradlePlugin {

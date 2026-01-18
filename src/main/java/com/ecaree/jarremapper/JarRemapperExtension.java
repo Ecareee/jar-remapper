@@ -2,6 +2,7 @@ package com.ecaree.jarremapper;
 
 import lombok.Getter;
 import org.gradle.api.Project;
+import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.ProjectLayout;
 import org.gradle.api.file.RegularFileProperty;
@@ -101,12 +102,6 @@ public class JarRemapperExtension {
     private final DirectoryProperty javaOutputDir;
 
     /**
-     * Java 重映射模式
-     * 默认 TYPES_ONLY
-     */
-    private final Property<JavaRemapperMode> remapMode;
-
-    /**
      * Java 备份目录
      * 默认 src/main/java-obf-backup
      */
@@ -117,6 +112,12 @@ public class JarRemapperExtension {
      * 默认 true
      */
     private final Property<Boolean> enableJavaMigrateTask;
+
+    /**
+     * Java 重映射额外需要的库 JAR，用于类型解析
+     * outputJar 会自动添加，这里配置 Android SDK 等额外依赖
+     */
+    private final ConfigurableFileCollection javaLibraryJars;
 
     /**
      * 报告输出目录
@@ -143,9 +144,9 @@ public class JarRemapperExtension {
         this.enableSmaliMigrateTask = objects.property(Boolean.class);
         this.javaInputDir = objects.directoryProperty();
         this.javaOutputDir = objects.directoryProperty();
-        this.remapMode = objects.property(JavaRemapperMode.class);
         this.javaBackupDir = objects.directoryProperty();
         this.enableJavaMigrateTask = objects.property(Boolean.class);
+        this.javaLibraryJars = objects.fileCollection();
         this.reportsDir = objects.directoryProperty();
 
         mappingsYaml.convention(layout.getProjectDirectory().file("mappings.yaml"));
@@ -164,7 +165,6 @@ public class JarRemapperExtension {
         javaInputDir.convention(layout.getProjectDirectory().dir("src/main/java"));
         javaOutputDir.convention(layout.getBuildDirectory().dir("generated/remappedJava"));
         javaBackupDir.convention(layout.getProjectDirectory().dir("src/main/java-obf-backup"));
-        remapMode.convention(JavaRemapperMode.TYPES_ONLY);
         enableJavaMigrateTask.convention(true);
 
         reportsDir.convention(layout.getBuildDirectory().dir("reports/jarRemapper"));
@@ -182,17 +182,5 @@ public class JarRemapperExtension {
             return mappingsSpecialSource.get().getAsFile();
         }
         return null;
-    }
-
-    public enum JavaRemapperMode {
-        /**
-         * 仅重映射类型（包名、类名、import、类型引用）
-         */
-        TYPES_ONLY,
-
-        /**
-         * 完整重映射（包含字段和方法调用点）
-         */
-        FULL
     }
 }

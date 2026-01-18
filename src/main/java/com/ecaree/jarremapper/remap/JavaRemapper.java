@@ -1,20 +1,31 @@
 package com.ecaree.jarremapper.remap;
 
-import com.ecaree.jarremapper.JarRemapperExtension.JavaRemapperMode;
 import com.ecaree.jarremapper.mapping.MappingData;
 import com.ecaree.jarremapper.util.FileUtils;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParseResult;
+import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.nodeTypes.NodeWithSimpleName;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
+import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
+import com.github.javaparser.resolution.types.ResolvedType;
+import com.github.javaparser.symbolsolver.JavaSymbolSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.JarTypeSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.java.Log;
 import net.md_5.specialsource.JarMapping;
@@ -28,13 +39,21 @@ import java.util.Map;
 
 /**
  * Java 重映射
- * 使用 JavaParser 进行 AST 级别重映射
+ * 使用 JavaParser + SymbolSolver 进行类型感知重映射
  */
 @Log
-@RequiredArgsConstructor
 public class JavaRemapper {
     private final MappingData mappingData;
-    private final JavaRemapperMode remapMode;
+    private final List<File> libraryJars;
+
+    public JavaRemapper(MappingData mappingData) {
+        this(mappingData, new ArrayList<>());
+    }
+
+    public JavaRemapper(MappingData mappingData, List<File> libraryJars) {
+        this.mappingData = mappingData;
+        this.libraryJars = libraryJars != null ? libraryJars : new ArrayList<>();
+    }
 
     /**
      * 重映射 Java 源码目录
@@ -52,7 +71,6 @@ public class JavaRemapper {
         log.info("Starting Java source remapping");
         log.info("Input: " + inputDir);
         log.info("Output: " + outputDir);
-        log.info("Mode: " + remapMode);
 
         FileUtils.ensureDirectory(outputDir);
 
@@ -61,11 +79,35 @@ public class JavaRemapper {
 
         log.info("Found " + javaFiles.size() + " Java files");
 
-        JavaParser parser = new JavaParser();
+        CombinedTypeSolver typeSolver = new CombinedTypeSolver();
+
+        // 1. JDK 类型
+        typeSolver.add(new ReflectionTypeSolver());
+
+        // 2. 源码目录本身
+        typeSolver.add(new JavaParserTypeSolver(inputDir));
+
+        // 3. 用户配置的库 JAR
+        for (File jarFile : libraryJars) {
+            if (jarFile.exists()) {
+                try {
+                    typeSolver.add(new JarTypeSolver(jarFile));
+                    log.info("Added library JAR: " + jarFile);
+                } catch (IOException e) {
+                    log.warning("Failed to add JAR to type solver: " + jarFile);
+                }
+            }
+        }
+
+        ParserConfiguration config = new ParserConfiguration();
+        config.setSymbolResolver(new JavaSymbolSolver(typeSolver));
+        JavaParser parser = new JavaParser(config);
+
+        JarMapping jarMapping = mappingData.getJarMapping();
         int processedCount = 0;
 
         for (File javaFile : javaFiles) {
-            processJavaFile(parser, javaFile, inputDir, outputDir);
+            processJavaFile(parser, jarMapping, javaFile, inputDir, outputDir);
             processedCount++;
         }
 
@@ -73,7 +115,8 @@ public class JavaRemapper {
         return processedCount;
     }
 
-    private void processJavaFile(JavaParser parser, File inputFile, File inputDir, File outputDir) throws IOException {
+    private void processJavaFile(JavaParser parser, JarMapping jarMapping,
+                                 File inputFile, File inputDir, File outputDir) throws IOException {
         ParseResult<CompilationUnit> parseResult = parser.parse(inputFile);
 
         if (!parseResult.isSuccessful()) {
@@ -93,14 +136,7 @@ public class JavaRemapper {
             return;
         }
 
-        JarMapping jarMapping = mappingData.getJarMapping();
-
-        if (remapMode == JavaRemapperMode.TYPES_ONLY) {
-            cu.accept(new TypesOnlyRemapper(jarMapping), null);
-        } else {
-            cu.accept(new FullRemapper(jarMapping, mappingData), null);
-        }
-
+        cu.accept(new RemappingVisitor(jarMapping), null);
         remapPackageDeclaration(cu, jarMapping);
 
         File outputFile = calculateOutputFile(cu, inputFile, inputDir, outputDir);
@@ -145,11 +181,12 @@ public class JavaRemapper {
     }
 
     private File calculateOutputFile(CompilationUnit cu, File inputFile, File inputDir, File outputDir) {
-        String typeName = cu.getPrimaryTypeName().orElse(null);
-        if (typeName == null) {
-            // 如果没有主类型，使用原文件名
-            typeName = inputFile.getName().replace(".java", "");
-        }
+//        String typeName = cu.getPrimaryTypeName().orElse(null);
+        // cu.getPrimaryTypeName() 只能获取原始文件名，应直接从 AST 的类型声明中读取已被重映射的类名
+        String typeName = cu.getTypes().stream()
+                .findFirst()
+                .map(NodeWithSimpleName::getNameAsString)
+                .orElse(inputFile.getName().replace(".java", ""));
 
         String pkgPath = cu.getPackageDeclaration()
                 .map(pkg -> pkg.getNameAsString().replace('.', File.separatorChar))
@@ -176,12 +213,11 @@ public class JavaRemapper {
     }
 
     /**
-     * 仅类型重映射访问器
-     * 只处理包名、类名、import 语句和类型引用
+     * 类型感知的重映射访问器
      */
     @RequiredArgsConstructor
-    private static class TypesOnlyRemapper extends VoidVisitorAdapter<Void> {
-        protected final JarMapping jarMapping;
+    private static class RemappingVisitor extends VoidVisitorAdapter<Void> {
+        private final JarMapping jarMapping;
 
         @Override
         public void visit(ImportDeclaration n, Void arg) {
@@ -197,8 +233,7 @@ public class JavaRemapper {
 
         @Override
         public void visit(ClassOrInterfaceType n, Void arg) {
-            String typeName = n.getNameAsString();
-            String remapped = remapSimpleName(typeName);
+            String remapped = remapSimpleName(n.getNameAsString());
             if (remapped != null) {
                 n.setName(remapped);
             }
@@ -207,15 +242,74 @@ public class JavaRemapper {
 
         @Override
         public void visit(ClassOrInterfaceDeclaration n, Void arg) {
-            String className = n.getNameAsString();
-            String remapped = remapSimpleName(className);
+            String remapped = remapSimpleName(n.getNameAsString());
             if (remapped != null) {
                 n.setName(remapped);
             }
             super.visit(n, arg);
         }
 
-        protected String remapSimpleName(String simpleName) {
+        @Override
+        public void visit(FieldAccessExpr n, Void arg) {
+            try {
+                ResolvedType scopeType = n.getScope().calculateResolvedType();
+                if (scopeType.isReferenceType()) {
+                    String ownerClass = scopeType.asReferenceType().getQualifiedName().replace('.', '/');
+                    tryRemapField(n, ownerClass, n.getNameAsString());
+                }
+            } catch (Exception ignored) {
+            }
+            super.visit(n, arg);
+        }
+
+        @Override
+        public void visit(MethodCallExpr n, Void arg) {
+            try {
+                ResolvedMethodDeclaration resolved = n.resolve();
+                String ownerClass = resolved.declaringType().getQualifiedName().replace('.', '/');
+                tryRemapMethod(n, ownerClass, n.getNameAsString(), buildDescriptor(resolved));
+            } catch (Exception ignored) {
+            }
+            super.visit(n, arg);
+        }
+
+        @Override
+        public void visit(FieldDeclaration n, Void arg) {
+            String ownerClass = getEnclosingClassName(n);
+            if (ownerClass != null) {
+                for (VariableDeclarator var : n.getVariables()) {
+                    tryRemapField(var, ownerClass, var.getNameAsString());
+                }
+            }
+            super.visit(n, arg);
+        }
+
+        @Override
+        public void visit(MethodDeclaration n, Void arg) {
+            String ownerClass = getEnclosingClassName(n);
+            if (ownerClass != null) {
+                tryRemapMethod(n, ownerClass, n.getNameAsString(), buildDescriptor(n));
+            }
+            super.visit(n, arg);
+        }
+
+        private void tryRemapField(NodeWithSimpleName<?> node, String ownerClass, String fieldName) {
+            String key = ownerClass + "/" + fieldName;
+            String remapped = jarMapping.fields.get(key);
+            if (remapped != null) {
+                node.setName(remapped);
+            }
+        }
+
+        private void tryRemapMethod(NodeWithSimpleName<?> node, String ownerClass, String methodName, String descriptor) {
+            String key = ownerClass + "/" + methodName + " " + descriptor;
+            String remapped = jarMapping.methods.get(key);
+            if (remapped != null) {
+                node.setName(remapped);
+            }
+        }
+
+        private String remapSimpleName(String simpleName) {
             for (Map.Entry<String, String> entry : jarMapping.classes.entrySet()) {
                 String obfClass = entry.getKey();
                 String readableClass = entry.getValue();
@@ -230,92 +324,82 @@ public class JavaRemapper {
             }
             return null;
         }
-    }
 
-    /**
-     * 完整重映射访问器
-     * 包含类型、字段和方法调用点
-     */
-    private static class FullRemapper extends TypesOnlyRemapper {
-        private final MappingData mappingData;
-
-        public FullRemapper(JarMapping jarMapping, MappingData mappingData) {
-            super(jarMapping);
-            this.mappingData = mappingData;
-        }
-
-        @Override
-        public void visit(FieldAccessExpr n, Void arg) {
-            String fieldName = n.getNameAsString();
-            String remapped = remapFieldName(fieldName);
-            if (remapped != null) {
-                n.setName(remapped);
-            }
-            super.visit(n, arg);
-        }
-
-        @Override
-        public void visit(MethodCallExpr n, Void arg) {
-            String methodName = n.getNameAsString();
-            String remapped = remapMethodName(methodName);
-            if (remapped != null) {
-                n.setName(remapped);
-            }
-            super.visit(n, arg);
-        }
-
-        @Override
-        public void visit(FieldDeclaration n, Void arg) {
-            for (VariableDeclarator var : n.getVariables()) {
-                String fieldName = var.getNameAsString();
-                String remapped = remapFieldName(fieldName);
-                if (remapped != null) {
-                    var.setName(remapped);
-                }
-            }
-            super.visit(n, arg);
-        }
-
-        @Override
-        public void visit(MethodDeclaration n, Void arg) {
-            String methodName = n.getNameAsString();
-            String remapped = remapMethodName(methodName);
-            if (remapped != null) {
-                n.setName(remapped);
-            }
-            super.visit(n, arg);
-        }
-
-        private String remapFieldName(String fieldName) {
-            for (Map.Entry<String, String> entry : mappingData.getJarMapping().fields.entrySet()) {
-                String key = entry.getKey();
-                int slashIdx = key.lastIndexOf('/');
-                if (slashIdx >= 0) {
-                    String obfName = key.substring(slashIdx + 1);
-                    if (obfName.equals(fieldName)) {
-                        return entry.getValue();
+        private String getEnclosingClassName(Node node) {
+            Node current = node;
+            while (current != null) {
+                if (current instanceof ClassOrInterfaceDeclaration) {
+                    try {
+                        ResolvedReferenceTypeDeclaration resolved = ((ClassOrInterfaceDeclaration) current).resolve();
+                        return resolved.getQualifiedName().replace('.', '/');
+                    } catch (Exception e) {
+                        return null;
                     }
                 }
+                current = current.getParentNode().orElse(null);
             }
             return null;
         }
 
-        private String remapMethodName(String methodName) {
-            for (Map.Entry<String, String> entry : mappingData.getJarMapping().methods.entrySet()) {
-                String key = entry.getKey();
-                int spaceIdx = key.indexOf(' ');
-                if (spaceIdx > 0) {
-                    String ownerAndName = key.substring(0, spaceIdx);
-                    int slashIdx = ownerAndName.lastIndexOf('/');
-                    if (slashIdx >= 0) {
-                        String obfName = ownerAndName.substring(slashIdx + 1);
-                        if (obfName.equals(methodName)) {
-                            return entry.getValue();
-                        }
-                    }
+        private String buildDescriptor(ResolvedMethodDeclaration method) {
+            StringBuilder sb = new StringBuilder("(");
+            for (int i = 0; i < method.getNumberOfParams(); i++) {
+                sb.append(toDescriptor(method.getParam(i).getType()));
+            }
+            sb.append(")");
+            sb.append(toDescriptor(method.getReturnType()));
+            return sb.toString();
+        }
+
+        private String buildDescriptor(MethodDeclaration method) {
+            StringBuilder sb = new StringBuilder("(");
+            for (Parameter param : method.getParameters()) {
+                try {
+                    sb.append(toDescriptor(param.getType().resolve()));
+                } catch (Exception e) {
+                    sb.append("Ljava/lang/Object;");
                 }
             }
-            return null;
+            sb.append(")");
+            try {
+                sb.append(toDescriptor(method.getType().resolve()));
+            } catch (Exception e) {
+                sb.append("V");
+            }
+            return sb.toString();
+        }
+
+        private String toDescriptor(ResolvedType type) {
+            if (type.isPrimitive()) {
+                switch (type.asPrimitive().name()) {
+                    case "BOOLEAN":
+                        return "Z";
+                    case "BYTE":
+                        return "B";
+                    case "CHAR":
+                        return "C";
+                    case "SHORT":
+                        return "S";
+                    case "INT":
+                        return "I";
+                    case "LONG":
+                        return "J";
+                    case "FLOAT":
+                        return "F";
+                    case "DOUBLE":
+                        return "D";
+                    default:
+                        return "V";
+                }
+            } else if (type.isVoid()) {
+                return "V";
+            } else if (type.isArray()) {
+                return "[" + toDescriptor(type.asArrayType().getComponentType());
+            } else if (type.isReferenceType()) {
+                String name = type.asReferenceType().getQualifiedName().replace('.', '/');
+                return "L" + name + ";";
+            }
+            return "Ljava/lang/Object;";
         }
     }
 }
