@@ -190,17 +190,19 @@ public class JavaRemapper {
         String typeName = cu.getTypes().stream()
                 .findFirst()
                 .map(NodeWithSimpleName::getNameAsString)
-                .orElse(inputFile.getName().replace(".java", ""));
+                .orElse(null);
 
         String pkgPath = cu.getPackageDeclaration()
                 .map(pkg -> pkg.getNameAsString().replace('.', File.separatorChar))
-                .orElse("");
+                .orElse(null);
 
-        if (pkgPath.isEmpty()) {
-            return new File(outputDir, typeName + ".java");
-        } else {
-            return new File(outputDir, pkgPath + File.separator + typeName + ".java");
+        // 无效文件保持原始相对路径
+        if (typeName == null || pkgPath == null) {
+            Path relativePath = inputDir.toPath().relativize(inputFile.toPath());
+            return new File(outputDir, relativePath.toString());
         }
+
+        return new File(outputDir, pkgPath + File.separator + typeName + ".java");
     }
 
     private void collectJavaFiles(File dir, List<File> files) {
