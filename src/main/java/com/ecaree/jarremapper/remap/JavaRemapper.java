@@ -73,6 +73,7 @@ public class JavaRemapper {
         log.info("Input: " + inputDir);
         log.info("Output: " + outputDir);
 
+        FileUtils.deleteDirectory(outputDir);
         FileUtils.ensureDirectory(outputDir);
 
         List<File> javaFiles = new ArrayList<>();
