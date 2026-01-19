@@ -18,6 +18,7 @@ import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithSimpleName;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
+import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
 import com.github.javaparser.resolution.types.ResolvedType;
@@ -136,13 +137,16 @@ public class JavaRemapper {
             return;
         }
 
+        // 保持原有代码风格
+        LexicalPreservingPrinter.setup(cu);
+
         cu.accept(new RemappingVisitor(jarMapping), null);
         remapPackageDeclaration(cu, jarMapping);
 
         File outputFile = calculateOutputFile(cu, inputFile, inputDir, outputDir);
 
         FileUtils.ensureDirectory(outputFile.getParentFile());
-        FileUtils.writeStringToFile(outputFile, cu.toString());
+        FileUtils.writeStringToFile(outputFile, LexicalPreservingPrinter.print(cu));
     }
 
     private void remapPackageDeclaration(CompilationUnit cu, JarMapping jarMapping) {
