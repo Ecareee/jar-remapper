@@ -13,6 +13,8 @@ import net.md_5.specialsource.provider.JointProvider;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * JAR 重映射
@@ -39,32 +41,47 @@ public class JarRemapper {
             log.info("Libraries: " + libraryJars.length);
         }
 
-        Jar jar = Jar.init(inputJar);
+        List<Jar> openedJars = new ArrayList<>();
 
-        JointProvider inheritanceProviders = new JointProvider();
-        inheritanceProviders.add(new JarProvider(jar));
+        try {
+            Jar jar = Jar.init(inputJar);
+            openedJars.add(jar);
 
-        for (File libJar : libraryJars) {
-            if (libJar.exists()) {
+            JointProvider inheritanceProviders = new JointProvider();
+            inheritanceProviders.add(new JarProvider(jar));
+
+            for (File libJar : libraryJars) {
+                if (libJar.exists()) {
+                    try {
+                        Jar lib = Jar.init(libJar);
+                        openedJars.add(lib);
+                        inheritanceProviders.add(new JarProvider(lib));
+                    } catch (IOException e) {
+                        log.warning("Failed to load library JAR: " + libJar);
+                    }
+                }
+            }
+
+            inheritanceProviders.add(new ClassLoaderProvider(ClassLoader.getSystemClassLoader()));
+
+            JarMapping jarMapping = mappingData.getJarMapping();
+            jarMapping.setFallbackInheritanceProvider(inheritanceProviders);
+
+            net.md_5.specialsource.JarRemapper remapper = new net.md_5.specialsource.JarRemapper(null, jarMapping, null);
+
+            FileUtils.ensureDirectory(outputJar.getParentFile());
+
+            remapper.remapJar(jar, outputJar);
+
+            log.info("JAR remapping completed: " + outputJar);
+        } finally {
+            for (Jar jar : openedJars) {
                 try {
-                    inheritanceProviders.add(new JarProvider(Jar.init(libJar)));
-                } catch (IOException e) {
-                    log.warning("Failed to load library JAR: " + libJar);
+                    jar.close();
+                } catch (Exception e) {
+                    log.warning("Failed to close JAR: " + e.getMessage());
                 }
             }
         }
-
-        inheritanceProviders.add(new ClassLoaderProvider(ClassLoader.getSystemClassLoader()));
-
-        JarMapping jarMapping = mappingData.getJarMapping();
-        jarMapping.setFallbackInheritanceProvider(inheritanceProviders);
-
-        net.md_5.specialsource.JarRemapper remapper = new net.md_5.specialsource.JarRemapper(null, jarMapping, null);
-
-        FileUtils.ensureDirectory(outputJar.getParentFile());
-
-        remapper.remapJar(jar, outputJar);
-
-        log.info("JAR remapping completed: " + outputJar);
     }
 }
