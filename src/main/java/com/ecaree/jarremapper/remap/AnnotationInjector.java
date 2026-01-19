@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.Enumeration;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -158,12 +159,8 @@ public class AnnotationInjector {
         }
 
         if (tempFile != null) {
-            if (!inputJar.delete()) {
-                throw new IOException("Failed to delete original file: " + inputJar);
-            }
-            if (!tempFile.renameTo(inputJar)) {
-                throw new IOException("Failed to rename temp file: " + tempFile + " -> " + inputJar);
-            }
+            // 使用 Files.move 原子替换，避免 windows 文件锁定问题
+            Files.move(tempFile.toPath(), inputJar.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }
 
         log.info("Annotation injection completed: " + annotatedCount + "/" + classCount + " classes annotated");
