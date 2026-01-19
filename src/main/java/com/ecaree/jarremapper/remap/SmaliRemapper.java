@@ -31,7 +31,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -72,8 +71,10 @@ public class SmaliRemapper {
         log.info("Found " + smaliFiles.size() + " smali files");
 
         // 使用 build 目录下的临时目录，避免清理问题
-        Path tempDir = Paths.get("build", "tmp", "smali-remap-" + System.currentTimeMillis());
-        Files.createDirectories(tempDir);
+//        Path tempDir = Paths.get("build", "tmp", "smali-remap-" + System.currentTimeMillis());
+//        Files.createDirectories(tempDir);
+        // 使用系统临时目录，确保路径有效
+        Path tempDir = Files.createTempDirectory("smali-remap-");
         File tempDex = tempDir.resolve("classes.dex").toFile();
         File remappedDex = tempDir.resolve("classes-remapped.dex").toFile();
 
@@ -97,12 +98,7 @@ public class SmaliRemapper {
             log.info("Smali remapping completed successfully");
 
         } finally {
-            // 不强制清理临时文件，让 gradle clean 处理
-            try {
-                FileUtils.deleteDirectory(tempDir.toFile());
-            } catch (Exception e) {
-                log.warning("Could not clean temp directory (will be cleaned by gradle clean): " + tempDir);
-            }
+            FileUtils.deleteDirectory(tempDir.toFile());
         }
     }
 
