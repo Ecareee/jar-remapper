@@ -35,7 +35,7 @@ public class MigrateJavaTask extends AbstractMigrateTask {
 
     @Override
     protected String getReportName() {
-        return "migrateJavaToReadable";
+        return "migrateJava";
     }
 
     @Override

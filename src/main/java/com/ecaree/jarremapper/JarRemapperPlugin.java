@@ -61,7 +61,7 @@ public class JarRemapperPlugin implements Plugin<Project> {
     }
 
     private void registerMigrateSmaliTask(Project project, JarRemapperExtension extension) {
-        project.getTasks().register("migrateSmaliToReadable", MigrateSmaliTask.class, t -> {
+        project.getTasks().register("migrateSmali", MigrateSmaliTask.class, t -> {
             t.setGroup(TASK_GROUP);
             t.setDescription("Migrate remapped smali back to project directory");
             t.setExtension(extension);
@@ -79,7 +79,7 @@ public class JarRemapperPlugin implements Plugin<Project> {
     }
 
     private void registerMigrateJavaTask(Project project, JarRemapperExtension extension) {
-        project.getTasks().register("migrateJavaToReadable", MigrateJavaTask.class, t -> {
+        project.getTasks().register("migrateJava", MigrateJavaTask.class, t -> {
             t.setGroup(TASK_GROUP);
             t.setDescription("Migrate remapped Java source back to project directory");
             t.setExtension(extension);

@@ -35,7 +35,7 @@ public class MigrateSmaliTask extends AbstractMigrateTask {
 
     @Override
     protected String getReportName() {
-        return "migrateSmaliToReadable";
+        return "migrateSmali";
     }
 
     @Override

@@ -70,10 +70,10 @@ public class SmaliRemapper {
         log.info("Output: " + outputDir);
         log.info("Found " + smaliFiles.size() + " smali files");
 
-        // 使用 build 目录下的临时目录，避免清理问题
+        // 实际是在 gradle deamon 目录下
 //        Path tempDir = Paths.get("build", "tmp", "smali-remap-" + System.currentTimeMillis());
 //        Files.createDirectories(tempDir);
-        // 使用系统临时目录，确保路径有效
+        // 使用系统临时目录，确保路径有效，避免清理问题
         Path tempDir = Files.createTempDirectory("smali-remap-");
         File tempDex = tempDir.resolve("classes.dex").toFile();
         File remappedDex = tempDir.resolve("classes-remapped.dex").toFile();
