@@ -8,6 +8,7 @@ import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
@@ -15,8 +16,11 @@ import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithSimpleName;
+import com.github.javaparser.ast.type.ArrayType;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import com.github.javaparser.ast.type.Type;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
@@ -249,11 +253,132 @@ public class JavaRemapper {
 
         @Override
         public void visit(ClassOrInterfaceDeclaration n, Void arg) {
+            System.out.println("[DEBUG] Visiting class: " + n.getNameAsString());
+            /*
+             * 字段/方法重映射时，getEnclosingClassName() 通过 SymbolResolver 获取原始混淆类名来匹配 mapping
+             * 如果先修改类名，SymbolResolver 返回的是修改后的类名，会导致 mapping 查找失败
+             * 所以必须先遍历子节点，最后再修改类名
+             */
+            super.visit(n, arg);
+
             String remapped = remapSimpleName(n.getNameAsString());
+            System.out.println("[DEBUG] After super.visit, class name: " + n.getNameAsString() + " -> " + remapped);
             if (remapped != null) {
                 n.setName(remapped);
             }
+        }
+
+        @Override
+        public void visit(FieldDeclaration n, Void arg) {
+            for (VariableDeclarator var : n.getVariables()) {
+                Type type = var.getType();
+
+                System.out.println("[DEBUG] Field type: " + type);
+                System.out.println("[DEBUG] isPhantom: " + type.isPhantom());
+                System.out.println("[DEBUG] type range: " + type.getRange().orElse(null));
+                System.out.println("[DEBUG] var range: " + var.getRange().orElse(null));
+
+                Type newType = remapAndCloneType(type);
+                if (newType != null) {
+                    /*
+                     * FieldDeclaration 中的类型是 phantom 节点
+                     * LexicalPreservingPrinter 将其 tokens 存储为 TokenTextElement，而非 ChildTextElement
+                     * 直接修改节点不会更新 TokenTextElement，只有通过 setType() 触发 LexicalPreservingPrinter Observer 才能更新 NodeText
+                     */
+                    var.setType(newType);
+                }
+            }
+
+            String ownerClass = getEnclosingClassName(n);
+            if (ownerClass != null) {
+                for (VariableDeclarator var : n.getVariables()) {
+                    tryRemapField(var, ownerClass, var.getNameAsString());
+                }
+            }
+
             super.visit(n, arg);
+        }
+
+        @Override
+        public void visit(VariableDeclarationExpr n, Void arg) {
+            // 局部变量与 FieldDeclaration 有相同的 phantom 类型问题，需要替换整个类型节点
+            for (VariableDeclarator var : n.getVariables()) {
+                Type newType = remapAndCloneType(var.getType());
+                if (newType != null) {
+                    var.setType(newType);
+                }
+            }
+            super.visit(n, arg);
+        }
+
+        /**
+         * 克隆并重映射类型
+         * 返回 null 表示不需要修改
+         */
+        private Type remapAndCloneType(Type type) {
+            if (type instanceof ClassOrInterfaceType) {
+                ClassOrInterfaceType classType = (ClassOrInterfaceType) type;
+                String newName = remapSimpleName(classType.getNameAsString());
+                boolean needsRemap = newName != null;
+
+                // 检查泛型参数是否需要重映射
+                if (classType.getTypeArguments().isPresent()) {
+                    for (Type arg : classType.getTypeArguments().get()) {
+                        if (needsRemapType(arg)) {
+                            needsRemap = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (needsRemap) {
+                    ClassOrInterfaceType newType = new ClassOrInterfaceType();
+                    newType.setName(newName != null ? newName : classType.getNameAsString());
+
+                    // 处理泛型参数
+                    if (classType.getTypeArguments().isPresent()) {
+                        NodeList<Type> newArgs = new NodeList<>();
+                        for (Type arg : classType.getTypeArguments().get()) {
+                            Type remappedArg = remapAndCloneType(arg);
+                            newArgs.add(remappedArg != null ? remappedArg : arg.clone());
+                        }
+                        newType.setTypeArguments(newArgs);
+                    }
+                    return newType;
+                }
+            } else if (type instanceof ArrayType) {
+                ArrayType arrayType = (ArrayType) type;
+                Type newComponentType = remapAndCloneType(arrayType.getComponentType());
+                if (newComponentType != null) {
+                    ArrayType newArrayType = arrayType.clone();
+                    newArrayType.setComponentType(newComponentType);
+                    return newArrayType;
+                }
+            }
+            return null;
+        }
+
+        /**
+         * 检查类型是否需要重映射
+         * 不实际修改
+         */
+        private boolean needsRemapType(Type type) {
+            if (type instanceof ClassOrInterfaceType) {
+                ClassOrInterfaceType classType = (ClassOrInterfaceType) type;
+                if (remapSimpleName(classType.getNameAsString()) != null) {
+                    return true;
+                }
+                if (classType.getTypeArguments().isPresent()) {
+                    for (Type arg : classType.getTypeArguments().get()) {
+                        if (needsRemapType(arg)) {
+                            return true;
+                        }
+                    }
+                }
+            } else if (type instanceof ArrayType) {
+                return needsRemapType(((ArrayType) type).getComponentType());
+            }
+            return false;
         }
 
         @Override
@@ -276,17 +401,6 @@ public class JavaRemapper {
                 String ownerClass = resolved.declaringType().getQualifiedName().replace('.', '/');
                 tryRemapMethod(n, ownerClass, n.getNameAsString(), buildDescriptor(resolved));
             } catch (Exception ignored) {
-            }
-            super.visit(n, arg);
-        }
-
-        @Override
-        public void visit(FieldDeclaration n, Void arg) {
-            String ownerClass = getEnclosingClassName(n);
-            if (ownerClass != null) {
-                for (VariableDeclarator var : n.getVariables()) {
-                    tryRemapField(var, ownerClass, var.getNameAsString());
-                }
             }
             super.visit(n, arg);
         }
