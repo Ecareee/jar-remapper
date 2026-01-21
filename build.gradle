@@ -22,40 +22,41 @@ repositories {
     google()
 }
 
-// 居然把我自己的 javaparser 移除了，gradle api 的还在
+// 居然把我自己的 javaparser 移除了，gradleApi 的还在
 //configurations.configureEach {
 //    exclude group: 'com.github.javaparser', module: 'javaparser-core'
 //}
 
-// 移除 java-gradle-plugin 自动添加的 gradle api 和 gradleTestKit
+// 排除 gradleApi 和 gradleTestKit 自带的旧版本 javaparser，防止与我们自己的 javaparser-symbol-solver-core 冲突
+def excluded = ['javaparser']
+
+def filterFiles = { dep ->
+    files(dep.files.findAll { file ->
+        !excluded.any {
+            file.name.contains(it)
+        }
+    })
+}
+
+def filteredGradleApi = filterFiles(dependencies.gradleApi())
+def filteredGradleTestKit = filterFiles(dependencies.gradleTestKit())
+
+// 移除 java-gradle-plugin 自动添加的 gradleApi 和 gradleTestKit
 afterEvaluate {
-    configurations.api.dependencies.removeIf { dep ->
-        dep instanceof DefaultFileCollectionDependency
-    }
-    configurations.testImplementation.dependencies.removeIf { dep ->
-        dep instanceof DefaultFileCollectionDependency
+    ['api', 'testImplementation'].each { configName ->
+        configurations.getByName(configName).dependencies.removeIf { dep ->
+            dep instanceof DefaultFileCollectionDependency &&
+                    dep.files.any { file ->
+                        excluded.any {
+                            file.name.contains(it)
+                        }
+                    }
+        }
     }
 }
 
-// 排除 gradle api 自带的旧版本 javaparser，防止与我们自己的 javaparser 冲突
-def filteredGradleApi = files(
-        file("${gradle.gradleHomeDir}/lib").listFiles().findAll {
-            !it.name.contains('javaparser')
-        }
-)
-
-// 同样处理 gradleTestKit
-def filteredGradleTestKit = files(
-        file("${gradle.gradleHomeDir}/lib").listFiles().findAll {
-            !it.name.contains('javaparser')
-        },
-        file("${gradle.gradleHomeDir}/lib/plugins").listFiles().findAll {
-            !it.name.contains('javaparser')
-        }
-)
-
 dependencies {
-    // 过滤后的 gradle api
+    // 过滤后的 gradleApi
     implementation filteredGradleApi
 
     // Lombok
