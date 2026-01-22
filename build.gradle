@@ -29,7 +29,8 @@ repositories {
 
 /**
  * 排除 gradleApi() 和 gradleTestKit() 自带的旧版本 javaparser，防止与我们自己的 javaparser-symbol-solver-core 冲突
- * 以及 gradleApi() 和 gradleTestKit() 打包 gradle-api.jar 前自带的 slf4j，防止 slf4j 绑定到 gradle 内部的 logger，而不是我们的 log4j-slf4j2-impl
+ * 以及 gradleApi() 和 gradleTestKit() 打包 gradle-api.jar 前自带的 slf4j，防止 slf4j 绑定到 gradle 内部的 logger 而不是我们的 log4j-slf4j2-impl 导致日志并未输出
+ * 相关问题 https://discuss.gradle.org/t/logging-in-gradle-plugin/31685 https://github.com/gradle/gradle/issues/2408
  */
 def excluded = [
         'javaparser',
