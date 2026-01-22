@@ -4,6 +4,7 @@ import com.ecaree.jarremapper.mapping.MappingData;
 import com.ecaree.jarremapper.mapping.MappingLoader;
 import com.ecaree.jarremapper.remap.JavaRemapper;
 import com.ecaree.jarremapper.util.FileUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -18,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@Slf4j
 public class JavaRemapperTest {
     @TempDir
     Path tempDir;
@@ -118,7 +120,9 @@ public class JavaRemapperTest {
         assertNotNull(testClassFile, "TestClass.java should exist");
 
         String testClassContent = Files.readString(testClassFile.toPath());
-        System.out.println("TestClass.java:\n" + testClassContent);
+        log.info("TestClass.java:\n{}", testClassContent);
+
+        System.out.println(log.getClass().getName());
 
         // 1. 包声明重映射
         assertTrue(testClassContent.contains("package com.example;"),
@@ -168,7 +172,7 @@ public class JavaRemapperTest {
         assertNotNull(helperFile, "Helper.java should exist");
 
         String helperContent = Files.readString(helperFile.toPath());
-        System.out.println("Helper.java:\n" + helperContent);
+        log.info("Helper.java:\n{}", helperContent);
 
         assertTrue(helperContent.contains("class Helper"),
                 "Class name should be remapped to Helper");
@@ -235,7 +239,7 @@ public class JavaRemapperTest {
         assertNotNull(outputFile, "TestClass.java should exist");
 
         String content = Files.readString(outputFile.toPath());
-        System.out.println("Inner class test:\n" + content);
+        log.info("Inner class test:\n{}", content);
 
         // 1. 内部类中的字段类型重映射
         assertTrue(content.contains("public final TestClass parent"),
@@ -292,7 +296,7 @@ public class JavaRemapperTest {
         assertNotNull(outputFile, "TestClass.java should exist");
 
         String content = Files.readString(outputFile.toPath());
-        System.out.println("Generic types test:\n" + content);
+        log.info("Generic types test:\n{}", content);
 
         // 泛型参数中的类型重映射
         assertTrue(content.contains("List<Helper>"),
@@ -340,7 +344,7 @@ public class JavaRemapperTest {
         assertNotNull(outputFile, "TestClass.java should exist");
 
         String content = Files.readString(outputFile.toPath());
-        System.out.println("Array types test:\n" + content);
+        log.info("Array types test:\n{}", content);
 
         // 数组元素类型重映射
         assertTrue(content.contains("Helper[]"),

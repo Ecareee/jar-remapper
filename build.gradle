@@ -22,16 +22,22 @@ repositories {
     google()
 }
 
-// 居然把我自己的 javaparser 移除了，gradleApi 的还在
+// 居然把我自己的 javaparser 移除了，gradleApi() 的还在
 //configurations.configureEach {
 //    exclude group: 'com.github.javaparser', module: 'javaparser-core'
 //}
 
-// 排除 gradleApi 和 gradleTestKit 自带的旧版本 javaparser，防止与我们自己的 javaparser-symbol-solver-core 冲突
-def excluded = ['javaparser']
+/**
+ * 排除 gradleApi() 和 gradleTestKit() 自带的旧版本 javaparser，防止与我们自己的 javaparser-symbol-solver-core 冲突
+ * 以及 gradleApi() 和 gradleTestKit() 打包 gradle-api.jar 前自带的 slf4j，防止 slf4j 绑定到 gradle 内部的 logger，而不是我们的 log4j-slf4j2-impl
+ */
+def excluded = [
+        'javaparser',
+        'slf4j-api'
+]
 
-def filterFiles = { dep ->
-    files(dep.files.findAll { file ->
+def filterFiles = { fileCollection ->
+    files(fileCollection.files.findAll { file ->
         !excluded.any {
             file.name.contains(it)
         }
@@ -39,9 +45,20 @@ def filterFiles = { dep ->
 }
 
 def filteredGradleApi = filterFiles(dependencies.gradleApi())
+// gradleApi() 会把 slf4j 打包到 gradle-api.jar 中，要想排除 slf4j，就必须从 lib 目录过滤
+def filteredGradleApiFromLib = filterFiles(
+        fileTree("${gradle.gradleHomeDir}/lib") { include '*.jar' }
+)
 def filteredGradleTestKit = filterFiles(dependencies.gradleTestKit())
+// gradleTestKit() 只比 gradleApi() 多了个 gradle-test-kit
+def filteredGradleTestKitFromLib = files(
+        filteredGradleApiFromLib,
+        dependencies.gradleTestKit().files.find {
+            it.name.contains('gradle-test-kit')
+        }
+)
 
-// 移除 java-gradle-plugin 自动添加的 gradleApi 和 gradleTestKit
+// 移除 java-gradle-plugin 自动添加的 gradleApi() 和 gradleTestKit()
 afterEvaluate {
     ['api', 'testImplementation'].each { configName ->
         configurations.getByName(configName).dependencies.removeIf { dep ->
@@ -56,12 +73,15 @@ afterEvaluate {
 }
 
 dependencies {
-    // 过滤后的 gradleApi
-    implementation filteredGradleApi
+    // 过滤后的 gradleApi()
+//    implementation filteredGradleApi
+    implementation filteredGradleApiFromLib
 
     // Lombok
     compileOnly 'org.projectlombok:lombok:1.18.42'
     annotationProcessor 'org.projectlombok:lombok:1.18.42'
+    testCompileOnly 'org.projectlombok:lombok:1.18.42'
+    testAnnotationProcessor 'org.projectlombok:lombok:1.18.42'
 
     // SpecialSource
     implementation 'net.md-5:SpecialSource:1.11.5'
@@ -86,7 +106,18 @@ dependencies {
     // 测试
     testImplementation 'org.junit.jupiter:junit-jupiter:5.14.2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-    testImplementation filteredGradleTestKit
+//    testImplementation filteredGradleTestKit
+    testImplementation filteredGradleTestKitFromLib
+
+    // 日志
+    implementation 'org.slf4j:slf4j-api:2.1.0-alpha1'
+//    implementation 'ch.qos.logback:logback-classic:1.5.25' // 颜色配置麻烦
+    runtimeOnly 'org.apache.logging.log4j:log4j-api:3.0.0-beta2'
+    runtimeOnly 'org.apache.logging.log4j:log4j-core:3.0.0-beta2'
+    runtimeOnly 'org.apache.logging.log4j:log4j-slf4j2-impl:3.0.0-beta2'
+    testRuntimeOnly 'org.apache.logging.log4j:log4j-api:3.0.0-beta2'
+    testRuntimeOnly 'org.apache.logging.log4j:log4j-core:3.0.0-beta2'
+    testRuntimeOnly 'org.apache.logging.log4j:log4j-slf4j2-impl:3.0.0-beta2'
 }
 
 gradlePlugin {

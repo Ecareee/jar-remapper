@@ -4,7 +4,7 @@ import com.ecaree.jarremapper.mapping.MappingData;
 import com.ecaree.jarremapper.util.FileUtils;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.java.Log;
+import lombok.extern.slf4j.Slf4j;
 import net.md_5.specialsource.Jar;
 import net.md_5.specialsource.JarMapping;
 import net.md_5.specialsource.provider.ClassLoaderProvider;
@@ -20,7 +20,7 @@ import java.util.List;
  * JAR 重映射
  * 封装 SpecialSource 的核心功能
  */
-@Log
+@Slf4j
 @Getter
 @RequiredArgsConstructor
 public class JarRemapper {
@@ -35,10 +35,10 @@ public class JarRemapper {
      */
     public void remapJarWithLibraries(File inputJar, File outputJar, File... libraryJars) throws IOException {
         log.info("Starting JAR remapping");
-        log.info("Input: " + inputJar);
-        log.info("Output: " + outputJar);
+        log.info("Input: {}", inputJar);
+        log.info("Output: {}", outputJar);
         if (libraryJars.length > 0) {
-            log.info("Libraries: " + libraryJars.length);
+            log.info("Libraries: {}", libraryJars.length);
         }
 
         List<Jar> openedJars = new ArrayList<>();
@@ -57,7 +57,7 @@ public class JarRemapper {
                         openedJars.add(lib);
                         inheritanceProviders.add(new JarProvider(lib));
                     } catch (IOException e) {
-                        log.warning("Failed to load library JAR: " + libJar);
+                        log.warn("Failed to load library JAR: {}", libJar);
                     }
                 }
             }
@@ -73,13 +73,13 @@ public class JarRemapper {
 
             remapper.remapJar(jar, outputJar);
 
-            log.info("JAR remapping completed: " + outputJar);
+            log.info("JAR remapping completed: {}", outputJar);
         } finally {
             for (Jar jar : openedJars) {
                 try {
                     jar.close();
                 } catch (Exception e) {
-                    log.warning("Failed to close JAR: " + e.getMessage());
+                    log.warn("Failed to close JAR: {}", e.getMessage());
                 }
             }
         }

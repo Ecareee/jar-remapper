@@ -32,7 +32,7 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.JarTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.java.Log;
+import lombok.extern.slf4j.Slf4j;
 import net.md_5.specialsource.JarMapping;
 
 import java.io.File;
@@ -46,7 +46,7 @@ import java.util.Map;
  * Java 重映射
  * 使用 JavaParser + SymbolSolver 进行类型感知重映射
  */
-@Log
+@Slf4j
 public class JavaRemapper {
     private final MappingData mappingData;
     private final List<File> libraryJars;
@@ -74,8 +74,8 @@ public class JavaRemapper {
         }
 
         log.info("Starting Java source remapping");
-        log.info("Input: " + inputDir);
-        log.info("Output: " + outputDir);
+        log.info("Input: {}", inputDir);
+        log.info("Output: {}", outputDir);
 
         FileUtils.deleteDirectory(outputDir);
         FileUtils.ensureDirectory(outputDir);
@@ -83,7 +83,7 @@ public class JavaRemapper {
         List<File> javaFiles = new ArrayList<>();
         collectJavaFiles(inputDir, javaFiles);
 
-        log.info("Found " + javaFiles.size() + " Java files");
+        log.info("Found {} Java files", javaFiles.size());
 
         CombinedTypeSolver typeSolver = new CombinedTypeSolver();
 
@@ -98,9 +98,9 @@ public class JavaRemapper {
             if (jarFile.exists()) {
                 try {
                     typeSolver.add(new JarTypeSolver(jarFile));
-                    log.info("Added library JAR: " + jarFile);
+                    log.info("Added library JAR: {}", jarFile);
                 } catch (IOException e) {
-                    log.warning("Failed to add JAR to type solver: " + jarFile);
+                    log.warn("Failed to add JAR to type solver: {}", jarFile);
                 }
             }
         }
@@ -117,7 +117,7 @@ public class JavaRemapper {
             processedCount++;
         }
 
-        log.info("Java source remapping completed: " + processedCount + " files");
+        log.info("Java source remapping completed: {} files", processedCount);
         return processedCount;
     }
 
@@ -130,7 +130,7 @@ public class JavaRemapper {
             Path relativePath = inputDir.toPath().relativize(inputFile.toPath());
             File outputFile = new File(outputDir, relativePath.toString());
             FileUtils.copyFile(inputFile, outputFile);
-            log.warning("Parse failed, copying as-is: " + inputFile.getName());
+            log.warn("Parse failed, copying as-is: {}", inputFile.getName());
             return;
         }
 
@@ -253,7 +253,7 @@ public class JavaRemapper {
 
         @Override
         public void visit(ClassOrInterfaceDeclaration n, Void arg) {
-            System.out.println("[DEBUG] Visiting class: " + n.getNameAsString());
+            log.debug("Visiting class: {}", n.getNameAsString());
             /*
              * 字段/方法重映射时，getEnclosingClassName() 通过 SymbolResolver 获取原始混淆类名来匹配 mapping
              * 如果先修改类名，SymbolResolver 返回的是修改后的类名，会导致 mapping 查找失败
@@ -262,7 +262,7 @@ public class JavaRemapper {
             super.visit(n, arg);
 
             String remapped = remapSimpleName(n.getNameAsString());
-            System.out.println("[DEBUG] After super.visit, class name: " + n.getNameAsString() + " -> " + remapped);
+            log.debug("After super.visit, class name: {} -> {}", n.getNameAsString(), remapped);
             if (remapped != null) {
                 n.setName(remapped);
             }
@@ -273,10 +273,10 @@ public class JavaRemapper {
             for (VariableDeclarator var : n.getVariables()) {
                 Type type = var.getType();
 
-                System.out.println("[DEBUG] Field type: " + type);
-                System.out.println("[DEBUG] isPhantom: " + type.isPhantom());
-                System.out.println("[DEBUG] type range: " + type.getRange().orElse(null));
-                System.out.println("[DEBUG] var range: " + var.getRange().orElse(null));
+                log.debug("Field type: {}", type);
+                log.debug("isPhantom: {}", type.isPhantom());
+                log.debug("type range: {}", type.getRange().orElse(null));
+                log.debug("var range: {}", var.getRange().orElse(null));
 
                 Type newType = remapAndCloneType(type);
                 if (newType != null) {

@@ -4,7 +4,7 @@ import com.ecaree.jarremapper.annotation.MappingComment;
 import com.ecaree.jarremapper.annotation.MappingInfo;
 import com.ecaree.jarremapper.mapping.MappingData;
 import com.ecaree.jarremapper.mapping.MappingEntry;
-import lombok.extern.java.Log;
+import lombok.extern.slf4j.Slf4j;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
@@ -31,7 +31,7 @@ import java.util.jar.Manifest;
  * 注解注入器
  * 对重映射后的 JAR 进行 ASM 二次遍历，注入映射相关注解
  */
-@Log
+@Slf4j
 public class AnnotationInjector {
     private static final String MAPPING_COMMENT_DESC = Type.getDescriptor(MappingComment.class);
     private static final String MAPPING_INFO_DESC = Type.getDescriptor(MappingInfo.class);
@@ -104,9 +104,9 @@ public class AnnotationInjector {
      */
     public void injectAnnotations(File inputJar, File outputJar) throws IOException {
         log.info("Starting annotation injection");
-        log.info("Input: " + inputJar);
-        log.info("Output: " + outputJar);
-        log.info("Include readable info: " + includeReadableInfo);
+        log.info("Input: {}", inputJar);
+        log.info("Output: {}", outputJar);
+        log.info("Include readable info: {}", includeReadableInfo);
 
         File tempFile = null;
         File actualOutputJar = outputJar;
@@ -163,7 +163,7 @@ public class AnnotationInjector {
             Files.move(tempFile.toPath(), inputJar.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }
 
-        log.info("Annotation injection completed: " + annotatedCount + "/" + classCount + " classes annotated");
+        log.info("Annotation injection completed: {}/{} classes annotated", annotatedCount, classCount);
     }
 
     private byte[] processClass(byte[] classBytes, String entryName) {

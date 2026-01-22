@@ -22,7 +22,7 @@ import com.ecaree.jarremapper.mapping.MappingData;
 import com.ecaree.jarremapper.util.FileUtils;
 import com.google.common.collect.ImmutableList;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.java.Log;
+import lombok.extern.slf4j.Slf4j;
 import net.md_5.specialsource.JarMapping;
 
 import javax.annotation.Nonnull;
@@ -38,7 +38,7 @@ import java.util.List;
  * Smali 重映射
  * 使用 smali -> dex -> remap dex -> baksmali 流程
  */
-@Log
+@Slf4j
 @RequiredArgsConstructor
 public class SmaliRemapper {
     private final MappingData mappingData;
@@ -60,15 +60,15 @@ public class SmaliRemapper {
         collectSmaliFiles(inputDir, smaliFiles);
 
         if (smaliFiles.isEmpty()) {
-            log.warning("No smali files found in: " + inputDir);
+            log.warn("No smali files found in: {}", inputDir);
             FileUtils.ensureDirectory(outputDir);
             return;
         }
 
         log.info("Starting smali remapping");
-        log.info("Input: " + inputDir);
-        log.info("Output: " + outputDir);
-        log.info("Found " + smaliFiles.size() + " smali files");
+        log.info("Input: {}", inputDir);
+        log.info("Output: {}", outputDir);
+        log.info("Found {} smali files", smaliFiles.size());
 
         // 实际是在 gradle deamon 目录下
 //        Path tempDir = Paths.get("build", "tmp", "smali-remap-" + System.currentTimeMillis());
@@ -82,12 +82,12 @@ public class SmaliRemapper {
             // 1. 编译 smali 到 dex
             log.info("1. Compiling smali to dex");
             compileSmaliToDex(smaliFiles, tempDex);
-            log.info("Dex created: " + tempDex.length() + " bytes");
+            log.info("Dex created: {} bytes", tempDex.length());
 
             // 2. 重映射 dex
             log.info("2. Remapping dex");
             remapDex(tempDex, remappedDex);
-            log.info("Remapped dex created: " + remappedDex.length() + " bytes");
+            log.info("Remapped dex created: {} bytes", remappedDex.length());
 
             // 3. 反编译 dex 到 smali
             log.info("3. Disassembling dex to smali");
