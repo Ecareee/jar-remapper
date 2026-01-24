@@ -69,6 +69,8 @@ public class JavaRemapper {
      * @throws IOException 如果 IO 操作失败
      */
     public int remapJavaSource(File inputDir, File outputDir) throws IOException {
+        System.out.println("Current logger: " + log.getClass().getName());
+
         if (!inputDir.exists()) {
             throw new IOException("Input directory does not exist: " + inputDir);
         }

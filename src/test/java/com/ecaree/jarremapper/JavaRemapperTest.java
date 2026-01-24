@@ -122,8 +122,6 @@ public class JavaRemapperTest {
         String testClassContent = Files.readString(testClassFile.toPath());
         log.info("TestClass.java:\n{}", testClassContent);
 
-        System.out.println(log.getClass().getName());
-
         // 1. 包声明重映射
         assertTrue(testClassContent.contains("package com.example;"),
                 "Package should be remapped to com.example");
