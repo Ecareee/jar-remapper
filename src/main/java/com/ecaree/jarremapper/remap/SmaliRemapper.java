@@ -1,51 +1,44 @@
 package com.ecaree.jarremapper.remap;
 
-import com.android.tools.smali.baksmali.Baksmali;
-import com.android.tools.smali.baksmali.BaksmaliOptions;
-import com.android.tools.smali.dexlib2.Opcodes;
-import com.android.tools.smali.dexlib2.dexbacked.DexBackedDexFile;
-import com.android.tools.smali.dexlib2.iface.ClassDef;
-import com.android.tools.smali.dexlib2.iface.DexFile;
-import com.android.tools.smali.dexlib2.iface.reference.FieldReference;
-import com.android.tools.smali.dexlib2.iface.reference.MethodReference;
-import com.android.tools.smali.dexlib2.immutable.reference.ImmutableFieldReference;
-import com.android.tools.smali.dexlib2.immutable.reference.ImmutableMethodReference;
-import com.android.tools.smali.dexlib2.rewriter.DexRewriter;
-import com.android.tools.smali.dexlib2.rewriter.Rewriter;
-import com.android.tools.smali.dexlib2.rewriter.RewriterModule;
-import com.android.tools.smali.dexlib2.rewriter.Rewriters;
-import com.android.tools.smali.dexlib2.writer.io.FileDataStore;
-import com.android.tools.smali.dexlib2.writer.pool.DexPool;
-import com.android.tools.smali.smali.Smali;
-import com.android.tools.smali.smali.SmaliOptions;
 import com.ecaree.jarremapper.mapping.MappingData;
 import com.ecaree.jarremapper.util.FileUtils;
-import com.google.common.collect.ImmutableList;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.md_5.specialsource.JarMapping;
 
-import javax.annotation.Nonnull;
-import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Smali 重映射
- * 使用 smali -> dex -> remap dex -> baksmali 流程
+ * 基于文本直接正则匹配重映射
+ * 弃用了 smali -> dex -> remap dex -> baksmali 流程，因为会丢失注释和格式
  */
 @Slf4j
 @RequiredArgsConstructor
 public class SmaliRemapper {
+    private static final Pattern CLASS_DEF_PATTERN = Pattern.compile(
+            "^\\.class\\s+.*?(L[^;]+;)");
+    private static final Pattern TYPE_PATTERN = Pattern.compile(
+            "L([a-zA-Z_][a-zA-Z0-9_/$]*);");
+    private static final Pattern FIELD_DEF_PATTERN = Pattern.compile(
+            "^\\.field\\s+(?:[^:]+\\s+)?([a-zA-Z_][a-zA-Z0-9_$]*):(\\[*(?:L[^;]+;|[ZBCSIJFD]))");
+    private static final Pattern METHOD_DEF_PATTERN = Pattern.compile(
+            "^\\.method\\s+(?:.+\\s+)?([a-zA-Z_<][a-zA-Z0-9_>$]*)\\(([^)]*)\\)(.+)");
+    private static final Pattern MEMBER_REF_PATTERN = Pattern.compile(
+            "(L[^;]+;)->([a-zA-Z_<][a-zA-Z0-9_>$]*)([:（(])");
+    private static final Pattern STRING_PATTERN = Pattern.compile(
+            "\"(?:[^\"\\\\]|\\\\.)*\"");
     private final MappingData mappingData;
 
     /**
      * 重映射 Smali 目录
-     * 流程：smali 目录 -> DEX -> 重映射 DEX -> baksmali -> 输出目录
+     * 基于文本直接正则匹配重映射
      *
      * @param inputDir  输入 Smali 目录
      * @param outputDir 输出 Smali 目录
@@ -70,87 +63,252 @@ public class SmaliRemapper {
         log.info("Output: {}", outputDir);
         log.info("Found {} smali files", smaliFiles.size());
 
-        // 实际是在 gradle deamon 目录下
-//        Path tempDir = Paths.get("build", "tmp", "smali-remap-" + System.currentTimeMillis());
-//        Files.createDirectories(tempDir);
-        // 使用系统临时目录，确保路径有效，避免清理问题
-        Path tempDir = Files.createTempDirectory("smali-remap-");
-        File tempDex = tempDir.resolve("classes.dex").toFile();
-        File remappedDex = tempDir.resolve("classes-remapped.dex").toFile();
+        FileUtils.deleteDirectory(outputDir);
+        FileUtils.ensureDirectory(outputDir);
 
-        try {
-            // 1. 编译 smali 到 dex
-            log.info("1. Compiling smali to dex");
-            compileSmaliToDex(smaliFiles, tempDex);
-            log.info("Dex created: {} bytes", tempDex.length());
-
-            // 2. 重映射 dex
-            log.info("2. Remapping dex");
-            remapDex(tempDex, remappedDex);
-            log.info("Remapped dex created: {} bytes", remappedDex.length());
-
-            // 3. 反编译 dex 到 smali
-            log.info("3. Disassembling dex to smali");
-            FileUtils.deleteDirectory(outputDir);
-            FileUtils.ensureDirectory(outputDir);
-            disassembleDexToSmali(remappedDex, outputDir);
-
-            log.info("Smali remapping completed successfully");
-
-        } finally {
-            FileUtils.deleteDirectory(tempDir.toFile());
-        }
-    }
-
-    private void compileSmaliToDex(List<File> smaliFiles, File dexFile) throws IOException {
-        SmaliOptions options = new SmaliOptions();
-        options.apiLevel = 30;
-        options.outputDexFile = dexFile.getAbsolutePath();
-
-        List<String> smaliPaths = new ArrayList<>();
-        for (File file : smaliFiles) {
-            smaliPaths.add(file.getAbsolutePath());
-        }
-
-        boolean success = Smali.assemble(options, smaliPaths);
-        if (!success) {
-            throw new IOException("Failed to compile smali files");
-        }
-    }
-
-    private void remapDex(File inputDex, File outputDex) throws IOException {
         JarMapping jarMapping = mappingData.getJarMapping();
+        int processedCount = 0;
+        int remappedCount = 0;
 
-        DexBackedDexFile dexFile;
-        try (BufferedInputStream bis = new BufferedInputStream(Files.newInputStream(inputDex.toPath()))) {
-            dexFile = DexBackedDexFile.fromInputStream(Opcodes.getDefault(), bis);
+        for (File smaliFile : smaliFiles) {
+            RemapResult result = processSmaliFile(smaliFile, inputDir, outputDir, jarMapping);
+            processedCount++;
+            if (result.wasRemapped) {
+                remappedCount++;
+            }
         }
 
-        RewriterModule rewriterModule = new MappingRewriterModule(jarMapping);
-        DexRewriter rewriter = new DexRewriter(rewriterModule);
-
-        DexFile rewrittenDex = rewriter.getDexFileRewriter().rewrite(dexFile);
-
-        DexPool dexPool = new DexPool(Opcodes.getDefault());
-        for (ClassDef classDef : rewrittenDex.getClasses()) {
-            dexPool.internClass(classDef);
-        }
-
-        dexPool.writeTo(new FileDataStore(outputDex));
+        log.info("Smali remapping completed: {}/{} files remapped", remappedCount, processedCount);
     }
 
-    private void disassembleDexToSmali(File dexFile, File outputDir) throws IOException {
-        DexBackedDexFile dex;
-        try (BufferedInputStream bis = new BufferedInputStream(Files.newInputStream(dexFile.toPath()))) {
-            dex = DexBackedDexFile.fromInputStream(Opcodes.getDefault(), bis);
+    private RemapResult processSmaliFile(File inputFile, File inputDir, File outputDir,
+                                         JarMapping jarMapping) throws IOException {
+        String content = FileUtils.readFileToString(inputFile);
+        String[] lines = content.split("\n", -1);
+
+        String currentClass = extractCurrentClass(lines);
+        if (currentClass == null) {
+            Path relativePath = inputDir.toPath().relativize(inputFile.toPath());
+            File outputFile = new File(outputDir, relativePath.toString());
+            FileUtils.copyFile(inputFile, outputFile);
+            return new RemapResult(false);
         }
 
-        BaksmaliOptions options = new BaksmaliOptions();
+        StringBuilder result = new StringBuilder();
+        boolean anyRemapped = false;
 
-        boolean success = Baksmali.disassembleDexFile(dex, outputDir, 4, options);
-        if (!success) {
-            throw new IOException("Failed to disassemble dex file");
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            String remappedLine = remapLine(line, currentClass, jarMapping);
+            if (!remappedLine.equals(line)) {
+                anyRemapped = true;
+            }
+            result.append(remappedLine);
+            if (i < lines.length - 1) {
+                result.append("\n");
+            }
         }
+
+        String mappedClassName = jarMapping.classes.getOrDefault(currentClass, currentClass);
+        String relativePath = mappedClassName.replace('/', File.separatorChar) + ".smali";
+        File outputFile = new File(outputDir, relativePath);
+
+        FileUtils.writeStringToFile(outputFile, result.toString());
+
+        return new RemapResult(anyRemapped);
+    }
+
+    private String extractCurrentClass(String[] lines) {
+        for (String line : lines) {
+            Matcher m = CLASS_DEF_PATTERN.matcher(line);
+            if (m.find()) {
+                String typeDescriptor = m.group(1);
+                return typeDescriptor.substring(1, typeDescriptor.length() - 1);
+            }
+        }
+        return null;
+    }
+
+    private String remapLine(String line, String currentClass, JarMapping jarMapping) {
+        String trimmed = line.trim();
+        if (trimmed.isEmpty()) {
+            return line;
+        }
+
+        int commentIdx = findCommentIndex(line);
+        String codePart = commentIdx >= 0 ? line.substring(0, commentIdx) : line;
+        String commentPart = commentIdx >= 0 ? line.substring(commentIdx) : "";
+
+        if (codePart.trim().isEmpty()) {
+            return line;
+        }
+
+        String remappedCode = remapCodePart(codePart, currentClass, jarMapping);
+
+        return remappedCode + commentPart;
+    }
+
+    private int findCommentIndex(String line) {
+        boolean inString = false;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (c == '"' && (i == 0 || line.charAt(i - 1) != '\\')) {
+                inString = !inString;
+            } else if (c == '#' && !inString) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private String remapCodePart(String code, String currentClass, JarMapping jarMapping) {
+        List<int[]> stringRanges = findStringRanges(code);
+
+        Matcher fieldDefMatcher = FIELD_DEF_PATTERN.matcher(code);
+        if (fieldDefMatcher.find()) {
+            String fieldName = fieldDefMatcher.group(1);
+            String fieldType = fieldDefMatcher.group(2);
+
+            String key = currentClass + "/" + fieldName;
+            String mappedName = jarMapping.fields.getOrDefault(key, fieldName);
+            String mappedType = remapTypeDescriptor(fieldType, jarMapping);
+
+            code = code.substring(0, fieldDefMatcher.start(1)) + mappedName + ":"
+                    + mappedType + code.substring(fieldDefMatcher.end(2));
+            stringRanges = findStringRanges(code);
+        }
+
+        Matcher methodDefMatcher = METHOD_DEF_PATTERN.matcher(code);
+        if (methodDefMatcher.find()) {
+            String methodName = methodDefMatcher.group(1);
+            String params = methodDefMatcher.group(2);
+            String returnType = methodDefMatcher.group(3);
+
+            String descriptor = "(" + params + ")" + returnType.split("\\s")[0];
+            String key = currentClass + "/" + methodName + " " + descriptor;
+            String mappedName = jarMapping.methods.getOrDefault(key, methodName);
+
+            String mappedParams = remapTypeDescriptor(params, jarMapping);
+            String mappedReturn = remapTypeDescriptor(returnType, jarMapping);
+
+            int nameStart = methodDefMatcher.start(1);
+            int returnEnd = methodDefMatcher.end(3);
+            code = code.substring(0, nameStart) + mappedName + "(" + mappedParams + ")" + mappedReturn
+                    + code.substring(returnEnd);
+            stringRanges = findStringRanges(code);
+        }
+
+        StringBuilder sb = new StringBuilder();
+        Matcher memberRefMatcher = MEMBER_REF_PATTERN.matcher(code);
+        int lastEnd = 0;
+
+        while (memberRefMatcher.find()) {
+            if (isInStringRange(memberRefMatcher.start(), stringRanges)) {
+                continue;
+            }
+
+            String ownerType = memberRefMatcher.group(1);
+            String memberName = memberRefMatcher.group(2);
+            String separator = memberRefMatcher.group(3);
+
+            String ownerClass = ownerType.substring(1, ownerType.length() - 1);
+            String mappedOwner = jarMapping.classes.getOrDefault(ownerClass, ownerClass);
+
+            String mappedName = memberName;
+            if (separator.equals(":")) {
+                String fieldKey = ownerClass + "/" + memberName;
+                mappedName = jarMapping.fields.getOrDefault(fieldKey, memberName);
+            } else if (separator.equals("(")) {
+                int closeParenIdx = code.indexOf(')', memberRefMatcher.end());
+                if (closeParenIdx > 0) {
+                    int returnEnd = findReturnTypeEnd(code, closeParenIdx + 1);
+                    String params = code.substring(memberRefMatcher.end(), closeParenIdx);
+                    String returnType = code.substring(closeParenIdx + 1, returnEnd);
+                    String descriptor = "(" + params + ")" + returnType;
+                    String methodKey = ownerClass + "/" + memberName + " " + descriptor;
+                    mappedName = jarMapping.methods.getOrDefault(methodKey, memberName);
+                }
+            }
+
+            sb.append(code, lastEnd, memberRefMatcher.start());
+            sb.append("L").append(mappedOwner).append(";->").append(mappedName).append(separator);
+            lastEnd = memberRefMatcher.end();
+        }
+        sb.append(code.substring(lastEnd));
+        code = sb.toString();
+        stringRanges = findStringRanges(code);
+
+        code = remapStandaloneTypes(code, jarMapping, stringRanges);
+
+        return code;
+    }
+
+    private String remapStandaloneTypes(String code, JarMapping jarMapping, List<int[]> stringRanges) {
+        StringBuffer sb = new StringBuffer();
+        Matcher typeMatcher = TYPE_PATTERN.matcher(code);
+
+        while (typeMatcher.find()) {
+            if (isInStringRange(typeMatcher.start(), stringRanges)) {
+                continue;
+            }
+
+            String className = typeMatcher.group(1);
+            String mappedClass = jarMapping.classes.getOrDefault(className, className);
+            typeMatcher.appendReplacement(sb, Matcher.quoteReplacement("L" + mappedClass + ";"));
+        }
+        typeMatcher.appendTail(sb);
+
+        return sb.toString();
+    }
+
+    private String remapTypeDescriptor(String descriptor, JarMapping jarMapping) {
+        if (descriptor == null || descriptor.isEmpty()) {
+            return descriptor;
+        }
+
+        StringBuffer sb = new StringBuffer();
+        Matcher m = TYPE_PATTERN.matcher(descriptor);
+        while (m.find()) {
+            String className = m.group(1);
+            String mapped = jarMapping.classes.getOrDefault(className, className);
+            m.appendReplacement(sb, Matcher.quoteReplacement("L" + mapped + ";"));
+        }
+        m.appendTail(sb);
+
+        return sb.toString();
+    }
+
+    private int findReturnTypeEnd(String code, int start) {
+        if (start >= code.length()) return code.length();
+
+        char c = code.charAt(start);
+        if (c == '[') {
+            return findReturnTypeEnd(code, start + 1);
+        } else if (c == 'L') {
+            int semiIdx = code.indexOf(';', start);
+            return semiIdx >= 0 ? semiIdx + 1 : code.length();
+        } else if ("ZBCSIJFDV".indexOf(c) >= 0) {
+            return start + 1;
+        }
+        return start;
+    }
+
+    private List<int[]> findStringRanges(String code) {
+        List<int[]> ranges = new ArrayList<>();
+        Matcher m = STRING_PATTERN.matcher(code);
+        while (m.find()) {
+            ranges.add(new int[]{m.start(), m.end()});
+        }
+        return ranges;
+    }
+
+    private boolean isInStringRange(int pos, List<int[]> ranges) {
+        for (int[] range : ranges) {
+            if (pos >= range[0] && pos < range[1]) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void collectSmaliFiles(File dir, List<File> files) {
@@ -167,109 +325,7 @@ public class SmaliRemapper {
     }
 
     @RequiredArgsConstructor
-    private static class MappingRewriterModule extends RewriterModule {
-        private final JarMapping jarMapping;
-
-        @Nonnull
-        @Override
-        public Rewriter<String> getTypeRewriter(@Nonnull Rewriters rewriters) {
-            return this::remapType;
-        }
-
-        @Nonnull
-        @Override
-        public Rewriter<FieldReference> getFieldReferenceRewriter(@Nonnull Rewriters rewriters) {
-            return fieldRef -> {
-                String definingClass = remapType(fieldRef.getDefiningClass());
-                String name = remapFieldName(fieldRef.getDefiningClass(), fieldRef.getName());
-                String type = remapType(fieldRef.getType());
-
-                // 使用 dexlib2 的不可变实现，确保能被 DexPool 识别
-                return new ImmutableFieldReference(definingClass, name, type);
-            };
-        }
-
-        @Nonnull
-        @Override
-        public Rewriter<MethodReference> getMethodReferenceRewriter(@Nonnull Rewriters rewriters) {
-            return methodRef -> {
-                String definingClass = remapType(methodRef.getDefiningClass());
-                String name = remapMethodName(methodRef.getDefiningClass(), methodRef.getName(),
-                        buildMethodDescriptor(methodRef));
-
-                List<String> paramTypes = new ArrayList<>();
-                for (CharSequence param : methodRef.getParameterTypes()) {
-                    paramTypes.add(remapType(param.toString()));
-                }
-                String returnType = remapType(methodRef.getReturnType());
-
-                // 使用 dexlib2 的不可变实现，确保能被 DexPool 识别
-                return new ImmutableMethodReference(definingClass, name,
-                        ImmutableList.copyOf(paramTypes), returnType);
-            };
-        }
-
-        private String remapType(String type) {
-            if (type == null) return null;
-
-            // 数组
-            int arrayDim = 0;
-            String baseType = type;
-            while (baseType.startsWith("[")) {
-                arrayDim++;
-                baseType = baseType.substring(1);
-            }
-
-            // 对象类型 L...;
-            if (baseType.startsWith("L") && baseType.endsWith(";")) {
-                String className = baseType.substring(1, baseType.length() - 1);
-                String mapped = jarMapping.classes.get(className);
-                if (mapped != null) {
-                    baseType = "L" + mapped + ";";
-                }
-            }
-
-            // 恢复数组维度
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < arrayDim; i++) {
-                sb.append('[');
-            }
-            sb.append(baseType);
-            return sb.toString();
-        }
-
-        private String remapFieldName(String owner, String name) {
-            String ownerClass = owner;
-            if (owner.startsWith("L") && owner.endsWith(";")) {
-                ownerClass = owner.substring(1, owner.length() - 1);
-            }
-
-            String key = ownerClass + "/" + name;
-            return jarMapping.fields.getOrDefault(key, name);
-        }
-
-        private String remapMethodName(String owner, String name, String descriptor) {
-            if (name.equals("<init>") || name.equals("<clinit>")) {
-                return name;
-            }
-
-            String ownerClass = owner;
-            if (owner.startsWith("L") && owner.endsWith(";")) {
-                ownerClass = owner.substring(1, owner.length() - 1);
-            }
-
-            String key = ownerClass + "/" + name + " " + descriptor;
-            return jarMapping.methods.getOrDefault(key, name);
-        }
-
-        private String buildMethodDescriptor(MethodReference methodRef) {
-            StringBuilder sb = new StringBuilder("(");
-            for (CharSequence param : methodRef.getParameterTypes()) {
-                sb.append(param);
-            }
-            sb.append(")");
-            sb.append(methodRef.getReturnType());
-            return sb.toString();
-        }
+    private static class RemapResult {
+        final boolean wasRemapped;
     }
 }
