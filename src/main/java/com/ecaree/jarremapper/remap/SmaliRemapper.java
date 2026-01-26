@@ -10,7 +10,9 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -34,7 +36,10 @@ public class SmaliRemapper {
             "(L[^;]+;)->([a-zA-Z_<][a-zA-Z0-9_>$]*)([:（(])");
     private static final Pattern STRING_PATTERN = Pattern.compile(
             "\"(?:[^\"\\\\]|\\\\.)*\"");
+
     private final MappingData mappingData;
+
+    private Map<String, String> expandedClassMappings;
 
     /**
      * 重映射 Smali 目录
@@ -67,6 +72,11 @@ public class SmaliRemapper {
         FileUtils.ensureDirectory(outputDir);
 
         JarMapping jarMapping = mappingData.getJarMapping();
+
+        expandedClassMappings = buildExpandedClassMappings(smaliFiles, jarMapping);
+        log.info("Expanded class mappings: {} (original: {})",
+                expandedClassMappings.size(), jarMapping.classes.size());
+
         int processedCount = 0;
         int remappedCount = 0;
 
@@ -79,6 +89,59 @@ public class SmaliRemapper {
         }
 
         log.info("Smali remapping completed: {}/{} files remapped", remappedCount, processedCount);
+    }
+
+    /**
+     * 构建扩展的类映射
+     * 包含内部类的隐式映射
+     */
+    private Map<String, String> buildExpandedClassMappings(List<File> smaliFiles, JarMapping jarMapping) {
+        Map<String, String> expanded = new HashMap<>(jarMapping.classes);
+
+        for (File smaliFile : smaliFiles) {
+            try {
+                String content = FileUtils.readFileToString(smaliFile);
+                String[] lines = content.split("\n", -1);
+                String className = extractCurrentClass(lines);
+
+                if (className != null && className.contains("$") && !expanded.containsKey(className)) {
+                    String mappedName = remapInnerClassName(className, jarMapping);
+                    if (!mappedName.equals(className)) {
+                        expanded.put(className, mappedName);
+                    }
+                }
+            } catch (IOException e) {
+                log.warn("Failed to read smali file for inner class detection: {}", smaliFile);
+            }
+        }
+
+        return expanded;
+    }
+
+    private String remapInnerClassName(String className, JarMapping jarMapping) {
+        String directMapping = jarMapping.classes.get(className);
+        if (directMapping != null) {
+            return directMapping;
+        }
+
+        int dollarIdx = className.lastIndexOf('$');
+        while (dollarIdx > 0) {
+            String outerClass = className.substring(0, dollarIdx);
+            String innerPart = className.substring(dollarIdx);
+
+            String mappedOuter = jarMapping.classes.get(outerClass);
+            if (mappedOuter != null) {
+                return mappedOuter + innerPart;
+            }
+
+            dollarIdx = className.lastIndexOf('$', dollarIdx - 1);
+        }
+
+        return className;
+    }
+
+    private String remapClassName(String className) {
+        return expandedClassMappings.getOrDefault(className, className);
     }
 
     private RemapResult processSmaliFile(File inputFile, File inputDir, File outputDir,
@@ -109,11 +172,15 @@ public class SmaliRemapper {
             }
         }
 
-        String mappedClassName = jarMapping.classes.getOrDefault(currentClass, currentClass);
+        String mappedClassName = remapClassName(currentClass);
         String relativePath = mappedClassName.replace('/', File.separatorChar) + ".smali";
         File outputFile = new File(outputDir, relativePath);
 
         FileUtils.writeStringToFile(outputFile, result.toString());
+
+        if (!mappedClassName.equals(currentClass)) {
+            anyRemapped = true;
+        }
 
         return new RemapResult(anyRemapped);
     }
@@ -171,7 +238,7 @@ public class SmaliRemapper {
 
             String key = currentClass + "/" + fieldName;
             String mappedName = jarMapping.fields.getOrDefault(key, fieldName);
-            String mappedType = remapTypeDescriptor(fieldType, jarMapping);
+            String mappedType = remapTypeDescriptor(fieldType);
 
             code = code.substring(0, fieldDefMatcher.start(1)) + mappedName + ":"
                     + mappedType + code.substring(fieldDefMatcher.end(2));
@@ -188,8 +255,8 @@ public class SmaliRemapper {
             String key = currentClass + "/" + methodName + " " + descriptor;
             String mappedName = jarMapping.methods.getOrDefault(key, methodName);
 
-            String mappedParams = remapTypeDescriptor(params, jarMapping);
-            String mappedReturn = remapTypeDescriptor(returnType, jarMapping);
+            String mappedParams = remapTypeDescriptor(params);
+            String mappedReturn = remapTypeDescriptor(returnType);
 
             int nameStart = methodDefMatcher.start(1);
             int returnEnd = methodDefMatcher.end(3);
@@ -212,7 +279,7 @@ public class SmaliRemapper {
             String separator = memberRefMatcher.group(3);
 
             String ownerClass = ownerType.substring(1, ownerType.length() - 1);
-            String mappedOwner = jarMapping.classes.getOrDefault(ownerClass, ownerClass);
+            String mappedOwner = remapClassName(ownerClass);
 
             String mappedName = memberName;
             if (separator.equals(":")) {
@@ -238,12 +305,12 @@ public class SmaliRemapper {
         code = sb.toString();
         stringRanges = findStringRanges(code);
 
-        code = remapStandaloneTypes(code, jarMapping, stringRanges);
+        code = remapStandaloneTypes(code, stringRanges);
 
         return code;
     }
 
-    private String remapStandaloneTypes(String code, JarMapping jarMapping, List<int[]> stringRanges) {
+    private String remapStandaloneTypes(String code, List<int[]> stringRanges) {
         StringBuffer sb = new StringBuffer();
         Matcher typeMatcher = TYPE_PATTERN.matcher(code);
 
@@ -253,7 +320,7 @@ public class SmaliRemapper {
             }
 
             String className = typeMatcher.group(1);
-            String mappedClass = jarMapping.classes.getOrDefault(className, className);
+            String mappedClass = remapClassName(className);
             typeMatcher.appendReplacement(sb, Matcher.quoteReplacement("L" + mappedClass + ";"));
         }
         typeMatcher.appendTail(sb);
@@ -261,7 +328,7 @@ public class SmaliRemapper {
         return sb.toString();
     }
 
-    private String remapTypeDescriptor(String descriptor, JarMapping jarMapping) {
+    private String remapTypeDescriptor(String descriptor) {
         if (descriptor == null || descriptor.isEmpty()) {
             return descriptor;
         }
@@ -270,7 +337,7 @@ public class SmaliRemapper {
         Matcher m = TYPE_PATTERN.matcher(descriptor);
         while (m.find()) {
             String className = m.group(1);
-            String mapped = jarMapping.classes.getOrDefault(className, className);
+            String mapped = remapClassName(className);
             m.appendReplacement(sb, Matcher.quoteReplacement("L" + mapped + ";"));
         }
         m.appendTail(sb);
