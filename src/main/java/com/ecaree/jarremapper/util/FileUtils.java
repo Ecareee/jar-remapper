@@ -4,6 +4,7 @@ import javax.annotation.Nonnull;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -65,12 +66,12 @@ public class FileUtils {
     }
 
     public static String readFileToString(File file) throws IOException {
-        return new String(Files.readAllBytes(file.toPath()));
+        return new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
     }
 
     public static void writeStringToFile(File file, String content) throws IOException {
         ensureDirectory(file.getParentFile());
-        Files.write(file.toPath(), content.getBytes());
+        Files.write(file.toPath(), content.getBytes(StandardCharsets.UTF_8));
     }
 
     public static void copyFile(File source, File target) throws IOException {
