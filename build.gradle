@@ -96,9 +96,9 @@ dependencies {
     implementation 'org.yaml:snakeyaml:2.5'
 
     // smali
-    implementation 'com.android.tools.smali:smali:3.0.9'
-    implementation 'com.android.tools.smali:smali-baksmali:3.0.9'
-    implementation 'com.android.tools.smali:smali-dexlib2:3.0.9'
+//    implementation 'com.android.tools.smali:smali:3.0.9'
+//    implementation 'com.android.tools.smali:smali-baksmali:3.0.9'
+//    implementation 'com.android.tools.smali:smali-dexlib2:3.0.9'
 
     // Java 重映射
     implementation 'com.github.javaparser:javaparser-core:3.28.0'
