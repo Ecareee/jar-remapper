@@ -39,6 +39,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -111,11 +112,10 @@ public class JavaRemapper {
         config.setSymbolResolver(new JavaSymbolSolver(typeSolver));
         JavaParser parser = new JavaParser(config);
 
-        JarMapping jarMapping = mappingData.getJarMapping();
         int processedCount = 0;
 
         for (File javaFile : javaFiles) {
-            processJavaFile(parser, jarMapping, javaFile, inputDir, outputDir);
+            processJavaFile(parser, javaFile, inputDir, outputDir);
             processedCount++;
         }
 
@@ -123,8 +123,7 @@ public class JavaRemapper {
         return processedCount;
     }
 
-    private void processJavaFile(JavaParser parser, JarMapping jarMapping,
-                                 File inputFile, File inputDir, File outputDir) throws IOException {
+    private void processJavaFile(JavaParser parser, File inputFile, File inputDir, File outputDir) throws IOException {
         ParseResult<CompilationUnit> parseResult = parser.parse(inputFile);
 
         if (!parseResult.isSuccessful()) {
@@ -147,8 +146,8 @@ public class JavaRemapper {
         // 保持原有代码风格
         LexicalPreservingPrinter.setup(cu);
 
-        cu.accept(new RemappingVisitor(jarMapping), null);
-        remapPackageDeclaration(cu, jarMapping);
+        cu.accept(new RemappingVisitor(mappingData), null);
+        remapPackageDeclaration(cu);
 
         File outputFile = calculateOutputFile(cu, inputFile, inputDir, outputDir);
 
@@ -156,16 +155,21 @@ public class JavaRemapper {
         FileUtils.writeStringToFile(outputFile, LexicalPreservingPrinter.print(cu));
     }
 
-    private void remapPackageDeclaration(CompilationUnit cu, JarMapping jarMapping) {
+    private void remapPackageDeclaration(CompilationUnit cu) {
         cu.getPackageDeclaration().ifPresent(pkg -> {
             String pkgName = pkg.getNameAsString();
             String internalPkg = pkgName.replace('.', '/');
 
+            JarMapping jarMapping = mappingData.getJarMapping();
+
             for (Map.Entry<String, String> entry : jarMapping.packages.entrySet()) {
                 String obfPkg = entry.getKey();
                 String readablePkg = entry.getValue();
-                if (internalPkg.equals(obfPkg) || internalPkg.startsWith(obfPkg + "/")) {
-                    String newPkg = internalPkg.replaceFirst(obfPkg, readablePkg);
+                if (internalPkg.equals(obfPkg) || internalPkg.startsWith(obfPkg)) {
+                    String newPkg = internalPkg.replaceFirst(
+                            obfPkg.endsWith("/") ? obfPkg.substring(0, obfPkg.length() - 1) : obfPkg,
+                            readablePkg.endsWith("/") ? readablePkg.substring(0, readablePkg.length() - 1) : readablePkg
+                    );
                     pkg.setName(newPkg.replace('/', '.'));
                     return;
                 }
@@ -230,15 +234,20 @@ public class JavaRemapper {
      */
     @RequiredArgsConstructor
     private static class RemappingVisitor extends VoidVisitorAdapter<Void> {
-        private final JarMapping jarMapping;
+        private final MappingData mappingData;
+        private final Map<String, String> simpleNameCache = new HashMap<>();
+
+        private JarMapping getJarMapping() {
+            return mappingData.getJarMapping();
+        }
 
         @Override
         public void visit(ImportDeclaration n, Void arg) {
             String importName = n.getNameAsString();
             String internalName = importName.replace('.', '/');
 
-            String remapped = jarMapping.classes.get(internalName);
-            if (remapped != null) {
+            String remapped = mappingData.mapClass(internalName);
+            if (!remapped.equals(internalName)) {
                 n.setName(remapped.replace('/', '.'));
             }
             super.visit(n, arg);
@@ -246,7 +255,8 @@ public class JavaRemapper {
 
         @Override
         public void visit(ClassOrInterfaceType n, Void arg) {
-            String remapped = remapSimpleName(n.getNameAsString());
+            String simpleName = n.getNameAsString();
+            String remapped = remapSimpleName(simpleName, n);
             if (remapped != null) {
                 n.setName(remapped);
             }
@@ -263,8 +273,9 @@ public class JavaRemapper {
              */
             super.visit(n, arg);
 
-            String remapped = remapSimpleName(n.getNameAsString());
-            log.debug("After super.visit, class name: {} -> {}", n.getNameAsString(), remapped);
+            String simpleName = n.getNameAsString();
+            String remapped = remapSimpleName(simpleName, n);
+            log.debug("After super.visit, class name: {} -> {}", simpleName, remapped);
             if (remapped != null) {
                 n.setName(remapped);
             }
@@ -320,7 +331,7 @@ public class JavaRemapper {
         private Type remapAndCloneType(Type type) {
             if (type instanceof ClassOrInterfaceType) {
                 ClassOrInterfaceType classType = (ClassOrInterfaceType) type;
-                String newName = remapSimpleName(classType.getNameAsString());
+                String newName = remapSimpleName(classType.getNameAsString(), classType);
                 boolean needsRemap = newName != null;
 
                 // 检查泛型参数是否需要重映射
@@ -367,7 +378,7 @@ public class JavaRemapper {
         private boolean needsRemapType(Type type) {
             if (type instanceof ClassOrInterfaceType) {
                 ClassOrInterfaceType classType = (ClassOrInterfaceType) type;
-                if (remapSimpleName(classType.getNameAsString()) != null) {
+                if (remapSimpleName(classType.getNameAsString(), classType) != null) {
                     return true;
                 }
                 if (classType.getTypeArguments().isPresent()) {
@@ -418,7 +429,7 @@ public class JavaRemapper {
 
         private void tryRemapField(NodeWithSimpleName<?> node, String ownerClass, String fieldName) {
             String key = ownerClass + "/" + fieldName;
-            String remapped = jarMapping.fields.get(key);
+            String remapped = getJarMapping().fields.get(key);
             if (remapped != null) {
                 node.setName(remapped);
             }
@@ -426,13 +437,39 @@ public class JavaRemapper {
 
         private void tryRemapMethod(NodeWithSimpleName<?> node, String ownerClass, String methodName, String descriptor) {
             String key = ownerClass + "/" + methodName + " " + descriptor;
-            String remapped = jarMapping.methods.get(key);
+            String remapped = getJarMapping().methods.get(key);
             if (remapped != null) {
                 node.setName(remapped);
             }
         }
 
-        private String remapSimpleName(String simpleName) {
+        /**
+         * 根据简单名查找映射
+         * 优先使用 SymbolSolver 解析完整类名，回退到简单名匹配
+         */
+        private String remapSimpleName(String simpleName, Node context) {
+            try {
+                if (context instanceof ClassOrInterfaceType) {
+                    ClassOrInterfaceType type = (ClassOrInterfaceType) context;
+                    ResolvedType resolved = type.resolve();
+                    if (resolved.isReferenceType()) {
+                        String fullName = resolved.asReferenceType().getQualifiedName().replace('.', '/');
+                        String mapped = mappingData.mapClass(fullName);
+                        if (!mapped.equals(fullName)) {
+                            int lastSlash = mapped.lastIndexOf('/');
+                            return lastSlash >= 0 ? mapped.substring(lastSlash + 1) : mapped;
+                        }
+                        return null;
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+
+            if (simpleNameCache.containsKey(simpleName)) {
+                return simpleNameCache.get(simpleName);
+            }
+
+            JarMapping jarMapping = getJarMapping();
             for (Map.Entry<String, String> entry : jarMapping.classes.entrySet()) {
                 String obfClass = entry.getKey();
                 String readableClass = entry.getValue();
@@ -442,9 +479,13 @@ public class JavaRemapper {
 
                 if (obfSimple.equals(simpleName)) {
                     int newLastSlash = readableClass.lastIndexOf('/');
-                    return newLastSlash >= 0 ? readableClass.substring(newLastSlash + 1) : readableClass;
+                    String result = newLastSlash >= 0 ? readableClass.substring(newLastSlash + 1) : readableClass;
+                    simpleNameCache.put(simpleName, result);
+                    return result;
                 }
             }
+
+            simpleNameCache.put(simpleName, null);
             return null;
         }
 

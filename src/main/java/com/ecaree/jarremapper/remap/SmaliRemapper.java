@@ -10,9 +10,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -38,8 +36,6 @@ public class SmaliRemapper {
             "\"(?:[^\"\\\\]|\\\\.)*\"");
 
     private final MappingData mappingData;
-
-    private Map<String, String> expandedClassMappings;
 
     /**
      * 重映射 Smali 目录
@@ -73,10 +69,6 @@ public class SmaliRemapper {
 
         JarMapping jarMapping = mappingData.getJarMapping();
 
-        expandedClassMappings = buildExpandedClassMappings(smaliFiles, jarMapping);
-        log.info("Expanded class mappings: {} (original: {})",
-                expandedClassMappings.size(), jarMapping.classes.size());
-
         int processedCount = 0;
         int remappedCount = 0;
 
@@ -91,57 +83,8 @@ public class SmaliRemapper {
         log.info("Smali remapping completed: {}/{} files remapped", remappedCount, processedCount);
     }
 
-    /**
-     * 构建扩展的类映射
-     * 包含内部类的隐式映射
-     */
-    private Map<String, String> buildExpandedClassMappings(List<File> smaliFiles, JarMapping jarMapping) {
-        Map<String, String> expanded = new HashMap<>(jarMapping.classes);
-
-        for (File smaliFile : smaliFiles) {
-            try {
-                String content = FileUtils.readFileToString(smaliFile);
-                String[] lines = content.split("\n", -1);
-                String className = extractCurrentClass(lines);
-
-                if (className != null && className.contains("$") && !expanded.containsKey(className)) {
-                    String mappedName = remapInnerClassName(className, jarMapping);
-                    if (!mappedName.equals(className)) {
-                        expanded.put(className, mappedName);
-                    }
-                }
-            } catch (IOException e) {
-                log.warn("Failed to read smali file for inner class detection: {}", smaliFile);
-            }
-        }
-
-        return expanded;
-    }
-
-    private String remapInnerClassName(String className, JarMapping jarMapping) {
-        String directMapping = jarMapping.classes.get(className);
-        if (directMapping != null) {
-            return directMapping;
-        }
-
-        int dollarIdx = className.lastIndexOf('$');
-        while (dollarIdx > 0) {
-            String outerClass = className.substring(0, dollarIdx);
-            String innerPart = className.substring(dollarIdx);
-
-            String mappedOuter = jarMapping.classes.get(outerClass);
-            if (mappedOuter != null) {
-                return mappedOuter + innerPart;
-            }
-
-            dollarIdx = className.lastIndexOf('$', dollarIdx - 1);
-        }
-
-        return className;
-    }
-
     private String remapClassName(String className) {
-        return expandedClassMappings.getOrDefault(className, className);
+        return mappingData.mapClass(className);
     }
 
     private RemapResult processSmaliFile(File inputFile, File inputDir, File outputDir,
