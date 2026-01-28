@@ -98,6 +98,8 @@ public class MappingLoaderTest {
 
         JarMapping jarMapping = data.getJarMapping();
         assertEquals("com/example/TestClass", jarMapping.classes.get("a/b"));
+        assertEquals("mField", jarMapping.fields.get("a/b/a"));
+        assertEquals("testMethod", jarMapping.methods.get("a/b/a ()V"));
 
         MappingEntry classEntry = data.getClassEntry("com/example/TestClass");
         assertNotNull(classEntry, "Should find class mapping entry");
@@ -106,6 +108,10 @@ public class MappingLoaderTest {
         MappingEntry fieldEntry = data.getFieldEntry("com/example/TestClass", "mField");
         assertNotNull(fieldEntry, "Should find field mapping entry");
         assertEquals("Test field", fieldEntry.getComment());
+
+        MappingEntry methodEntry = data.getMethodEntry("com/example/TestClass", "testMethod", "()V");
+        assertNotNull(methodEntry, "Should find method mapping entry");
+        assertEquals("Test method", methodEntry.getComment());
     }
 
     @Test
@@ -114,9 +120,13 @@ public class MappingLoaderTest {
 
         assertNotNull(data, "Mapping data should not be null");
         assertEquals(1, data.getClassCount(), "Should have 1 class mapping");
+        assertEquals(1, data.getFieldCount(), "Should have 1 field mapping");
+        assertEquals(1, data.getMethodCount(), "Should have 1 method mapping");
 
         JarMapping jarMapping = data.getJarMapping();
         assertEquals("com/example/TestClass", jarMapping.classes.get("a/b"));
+        assertEquals("mField", jarMapping.fields.get("a/b/a"));
+        assertEquals("testMethod", jarMapping.methods.get("a/b/a ()V"));
     }
 
     @Test
@@ -125,9 +135,13 @@ public class MappingLoaderTest {
 
         assertNotNull(data, "Mapping data should not be null");
         assertEquals(1, data.getClassCount(), "Should have 1 class mapping");
+        assertEquals(1, data.getFieldCount(), "Should have 1 field mapping");
+        assertEquals(1, data.getMethodCount(), "Should have 1 method mapping");
 
         JarMapping jarMapping = data.getJarMapping();
         assertEquals("com/example/TestClass", jarMapping.classes.get("a/b"));
+        assertEquals("mField", jarMapping.fields.get("a/b/a"));
+        assertEquals("testMethod", jarMapping.methods.get("a/b/a ()V"));
     }
 
     @Test
@@ -136,9 +150,13 @@ public class MappingLoaderTest {
 
         assertNotNull(data, "Mapping data should not be null");
         assertEquals(1, data.getClassCount(), "Should have 1 class mapping");
+        assertEquals(1, data.getFieldCount(), "Should have 1 field mapping");
+        assertEquals(1, data.getMethodCount(), "Should have 1 method mapping");
 
         JarMapping jarMapping = data.getJarMapping();
         assertEquals("com/example/TestClass", jarMapping.classes.get("a/b"));
+        assertEquals("mField", jarMapping.fields.get("a/b/a"));
+        assertEquals("testMethod", jarMapping.methods.get("a/b/a ()V"));
     }
 
     @Test
@@ -147,9 +165,13 @@ public class MappingLoaderTest {
 
         assertNotNull(data, "Mapping data should not be null");
         assertEquals(1, data.getClassCount(), "Should have 1 class mapping");
+        assertEquals(1, data.getFieldCount(), "Should have 1 field mapping");
+        assertEquals(1, data.getMethodCount(), "Should have 1 method mapping");
 
         JarMapping jarMapping = data.getJarMapping();
         assertEquals("com/example/TestClass", jarMapping.classes.get("a/b"));
+        assertEquals("mField", jarMapping.fields.get("a/b/a"));
+        assertEquals("testMethod", jarMapping.methods.get("a/b/a ()V"));
     }
 
     @Test
@@ -160,6 +182,12 @@ public class MappingLoaderTest {
 
         JarMapping jarMapping = data.getJarMapping();
         assertFalse(jarMapping.classes.isEmpty(), "Should have class mappings");
+        assertFalse(jarMapping.fields.isEmpty(), "Should have field mappings");
+        assertFalse(jarMapping.methods.isEmpty(), "Should have method mappings");
+
+        assertEquals("a/b", jarMapping.classes.get("com/example/TestClass"));
+        assertEquals("a", jarMapping.fields.get("com/example/TestClass/mField/Ljava/lang/String;"));
+        assertEquals("a", jarMapping.methods.get("com/example/TestClass/testMethod ()V"));
     }
 
     @Test
@@ -167,10 +195,14 @@ public class MappingLoaderTest {
         MappingData yamlData = MappingLoader.load(yamlFile);
         assertNotNull(yamlData);
         assertEquals(1, yamlData.getClassCount());
+        assertEquals(1, yamlData.getFieldCount());
+        assertEquals(1, yamlData.getMethodCount());
 
         MappingData srgData = MappingLoader.load(srgFile);
         assertNotNull(srgData);
         assertEquals(1, srgData.getClassCount());
+        assertEquals(1, srgData.getFieldCount());
+        assertEquals(1, srgData.getMethodCount());
     }
 
     @Test
@@ -181,6 +213,8 @@ public class MappingLoaderTest {
 
         JarMapping reversedMapping = reversed.getJarMapping();
         assertEquals("a/b", reversedMapping.classes.get("com/example/TestClass"));
+        assertEquals("a", reversedMapping.fields.get("com/example/TestClass/mField"));
+        assertEquals("a", reversedMapping.methods.get("com/example/TestClass/testMethod ()V"));
     }
 
     @Test
@@ -204,5 +238,41 @@ public class MappingLoaderTest {
         MappingEntry methodEntry = data.getMethodEntry("com/example/ClassB", "process",
                 "(Lcom/example/ClassA;[Lcom/example/ClassA;)Lcom/example/ClassA;");
         assertNotNull(methodEntry, "Should find method mapping with remapped descriptor");
+    }
+
+    @Test
+    public void testPackageMapping() throws IOException {
+        File pkgSrg = tempDir.resolve("packages.srg").toFile();
+        Files.writeString(pkgSrg.toPath(), """
+                PK: a/ com/example/
+                CL: a/b com/example/TestClass
+                """);
+
+        MappingData data = MappingLoader.loadSpecialSource(pkgSrg);
+
+        assertNotNull(data);
+        assertEquals(1, data.getPackageCount(), "Should have 1 package mapping");
+        assertEquals(1, data.getClassCount(), "Should have 1 class mapping");
+
+        JarMapping jarMapping = data.getJarMapping();
+        assertEquals("com/example/", jarMapping.packages.get("a/"));
+    }
+
+    @Test
+    public void testMapClassWithInnerClass() throws IOException {
+        File innerClassYaml = tempDir.resolve("inner.yaml").toFile();
+        Files.writeString(innerClassYaml.toPath(), """
+                version: "1.0"
+                classes:
+                  - obfuscated: a/b
+                    readable: com/example/Outer
+                """);
+
+        MappingData data = MappingLoader.loadYaml(innerClassYaml);
+
+        assertEquals("com/example/Outer", data.mapClass("a/b"));
+        assertEquals("com/example/Outer$c", data.mapClass("a/b$c"));
+        assertEquals("com/example/Outer$c$d", data.mapClass("a/b$c$d"));
+        assertEquals("x/y$z", data.mapClass("x/y$z"));
     }
 }
