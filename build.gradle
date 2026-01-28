@@ -2,6 +2,7 @@ import org.gradle.api.internal.artifacts.dependencies.DefaultFileCollectionDepen
 
 plugins {
     id 'java-gradle-plugin'
+    id 'maven-publish'
 }
 
 java {
