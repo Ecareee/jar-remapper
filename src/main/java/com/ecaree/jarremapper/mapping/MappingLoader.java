@@ -59,7 +59,8 @@ public class MappingLoader {
     public static MappingData loadSpecialSource(File srgFile) throws IOException {
         JarMapping jarMapping = new JarMapping();
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(srgFile))) {
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(Files.newInputStream(srgFile.toPath()), StandardCharsets.UTF_8))) {
             jarMapping.loadMappings(reader, null, null, false);
         }
 
