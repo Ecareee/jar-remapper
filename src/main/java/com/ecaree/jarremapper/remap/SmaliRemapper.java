@@ -83,10 +83,6 @@ public class SmaliRemapper {
         log.info("Smali remapping completed: {}/{} files remapped", remappedCount, processedCount);
     }
 
-    private String remapClassName(String className) {
-        return mappingData.mapClass(className);
-    }
-
     private RemapResult processSmaliFile(File inputFile, File inputDir, File outputDir,
                                          JarMapping jarMapping) throws IOException {
         String content = FileUtils.readFileToString(inputFile);
@@ -115,7 +111,7 @@ public class SmaliRemapper {
             }
         }
 
-        String mappedClassName = remapClassName(currentClass);
+        String mappedClassName = mappingData.mapClass(currentClass);
         String relativePath = mappedClassName.replace('/', File.separatorChar) + ".smali";
         File outputFile = new File(outputDir, relativePath);
 
@@ -222,7 +218,7 @@ public class SmaliRemapper {
             String separator = memberRefMatcher.group(3);
 
             String ownerClass = ownerType.substring(1, ownerType.length() - 1);
-            String mappedOwner = remapClassName(ownerClass);
+            String mappedOwner = mappingData.mapClass(ownerClass);
 
             String mappedName = memberName;
             if (separator.equals(":")) {
@@ -263,7 +259,7 @@ public class SmaliRemapper {
             }
 
             String className = typeMatcher.group(1);
-            String mappedClass = remapClassName(className);
+            String mappedClass = mappingData.mapClass(className);
             typeMatcher.appendReplacement(sb, Matcher.quoteReplacement("L" + mappedClass + ";"));
         }
         typeMatcher.appendTail(sb);
@@ -280,7 +276,7 @@ public class SmaliRemapper {
         Matcher m = TYPE_PATTERN.matcher(descriptor);
         while (m.find()) {
             String className = m.group(1);
-            String mapped = remapClassName(className);
+            String mapped = mappingData.mapClass(className);
             m.appendReplacement(sb, Matcher.quoteReplacement("L" + mapped + ";"));
         }
         m.appendTail(sb);

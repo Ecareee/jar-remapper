@@ -3,6 +3,7 @@ package com.ecaree.jarremapper.mapping;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import net.md_5.specialsource.JarMapping;
+import net.md_5.specialsource.JarRemapper;
 
 import java.util.Map;
 
@@ -47,56 +48,9 @@ public class MappingData {
 
     /**
      * 映射类名，支持内部类和包映射
-     * 参考 SpecialSource JarRemapper.mapClassName
      */
     public String mapClass(String className) {
-        if (className == null) return null;
-
-        String mapped = jarMapping.classes.get(className);
-        if (mapped != null) {
-            return mapped;
-        }
-
-        int dollarIdx = className.lastIndexOf('$');
-        if (dollarIdx != -1) {
-            String outer = className.substring(0, dollarIdx);
-            String innerPart = className.substring(dollarIdx);
-            String mappedOuter = mapClass(outer);
-            if (mappedOuter != null && !mappedOuter.equals(outer)) {
-                return mappedOuter + innerPart;
-            }
-        }
-
-        for (Map.Entry<String, String> entry : jarMapping.packages.entrySet()) {
-            String oldPkg = entry.getKey();
-            if (matchPackage(oldPkg, className)) {
-                String newPkg = entry.getValue();
-                return movePackage(oldPkg, newPkg, className);
-            }
-        }
-
-        return className;
-    }
-
-    private boolean matchPackage(String packageName, String className) {
-        if (".".equals(packageName)) {
-            return className.indexOf('/') == -1;
-        }
-        return className.startsWith(packageName);
-    }
-
-    private String movePackage(String oldPkg, String newPkg, String className) {
-        if (".".equals(oldPkg)) {
-            if (".".equals(newPkg)) {
-                return className;
-            }
-            return newPkg + className;
-        }
-        String simpleName = className.substring(oldPkg.length());
-        if (".".equals(newPkg)) {
-            return simpleName;
-        }
-        return newPkg + simpleName;
+        return JarRemapper.mapTypeName(className, jarMapping.packages, jarMapping.classes, className);
     }
 
     public int getClassCount() {
