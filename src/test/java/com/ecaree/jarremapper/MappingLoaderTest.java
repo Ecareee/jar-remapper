@@ -25,6 +25,7 @@ public class MappingLoaderTest {
     private File srgFile;
     private File csrgFile;
     private File tsrgFile;
+    private File tsrg2File;
     private File proguardFile;
 
     @BeforeEach
@@ -67,6 +68,15 @@ public class MappingLoaderTest {
                 a/b com/example/TestClass
                 \ta mField
                 \ta ()V testMethod
+                """);
+
+        tsrg2File = tempDir.resolve("mappings.tsrg2").toFile();
+        Files.writeString(tsrg2File.toPath(), """
+                tsrg2 left right
+                a/b com/example/TestClass
+                \ta mField
+                \ta ()V testMethod
+                \t\t0 this
                 """);
 
         proguardFile = tempDir.resolve("mapping.txt").toFile();
@@ -123,6 +133,17 @@ public class MappingLoaderTest {
     @Test
     public void testLoadTsrg() throws IOException {
         MappingData data = MappingLoader.loadSpecialSource(tsrgFile);
+
+        assertNotNull(data, "Mapping data should not be null");
+        assertEquals(1, data.getClassCount(), "Should have 1 class mapping");
+
+        JarMapping jarMapping = data.getJarMapping();
+        assertEquals("com/example/TestClass", jarMapping.classes.get("a/b"));
+    }
+
+    @Test
+    public void testLoadTsrg2() throws IOException {
+        MappingData data = MappingLoader.loadSpecialSource(tsrg2File);
 
         assertNotNull(data, "Mapping data should not be null");
         assertEquals(1, data.getClassCount(), "Should have 1 class mapping");

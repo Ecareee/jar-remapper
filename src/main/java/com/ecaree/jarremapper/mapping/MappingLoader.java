@@ -7,9 +7,10 @@ import org.yaml.snakeyaml.constructor.Constructor;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.Map;
@@ -18,10 +19,7 @@ import java.util.Map;
  * 映射加载器
  * 支持以下格式：
  * - YAML（自定义，支持注释）
- * - SRG（SpecialSource 原生）
- * - CSRG（紧凑 SRG）
- * - TSRG（带缩进的分层格式）
- * - ProGuard（Android 混淆映射）
+ * - SRG/CSRG/TSRG/TSRG2/ProGuard（SpecialSource 原生）
  */
 public class MappingLoader {
     public static MappingData load(File mappingFile) throws IOException {
@@ -30,7 +28,7 @@ public class MappingLoader {
         if (fileName.endsWith(".yaml") || fileName.endsWith(".yml")) {
             return loadYaml(mappingFile);
         } else {
-            // SRG/CSRG/TSRG/ProGuard 格式，使用 SpecialSource 加载
+            // SRG/CSRG/TSRG/TSRG2/ProGuard 格式，使用 SpecialSource 加载
             return loadSpecialSource(mappingFile);
         }
     }
@@ -46,15 +44,8 @@ public class MappingLoader {
     }
 
     /**
-     * 加载 SpecialSource 格式映射（SRG/CSRG/TSRG/ProGuard）
-     * SpecialSource 的 JarMapping.loadMappings 方法会自动检测格式：
-     * - 以 "PK:" 开头 -> SRG 包映射
-     * - 以 "CL:" 开头 -> SRG 类映射
-     * - 以 "FD:" 开头 -> SRG 字段映射
-     * - 以 "MD:" 开头 -> SRG 方法映射
-     * - 包含 " -> " -> ProGuard 格式
-     * - 以 "\t" 开头 -> TSRG 格式的成员
-     * - 其他 -> CSRG 格式
+     * 加载 SpecialSource 格式映射（SRG/CSRG/TSRG/TSRG2/ProGuard）
+     * SpecialSource JarMapping.loadMappings 方法会自动检测格式
      */
     public static MappingData loadSpecialSource(File srgFile) throws IOException {
         JarMapping jarMapping = new JarMapping();
@@ -98,7 +89,7 @@ public class MappingLoader {
         }
 
         for (Map.Entry<String, String> entry : orig.fields.entrySet()) {
-            String key = entry.getKey();  // obfOwner/obfName
+            String key = entry.getKey(); // obfOwner/obfName
             String readableName = entry.getValue();
 
             int slashIdx = key.lastIndexOf('/');
@@ -111,7 +102,7 @@ public class MappingLoader {
         }
 
         for (Map.Entry<String, String> entry : orig.methods.entrySet()) {
-            String key = entry.getKey();  // obfOwner/obfName desc
+            String key = entry.getKey(); // obfOwner/obfName desc
             String readableName = entry.getValue();
 
             int spaceIdx = key.indexOf(' ');
@@ -130,27 +121,27 @@ public class MappingLoader {
         }
 
         for (Map.Entry<String, MappingEntry> entry : original.getEntries().entrySet()) {
-            MappingEntry orig_entry = entry.getValue();
+            MappingEntry origEntry = entry.getValue();
             MappingEntry reversedEntry;
 
-            switch (orig_entry.getType()) {
+            switch (origEntry.getType()) {
                 case CLASS:
                     reversedEntry = MappingEntry.forClass(
-                            orig_entry.getReadableName(),
-                            orig_entry.getObfName(),
-                            orig_entry.getComment());
+                            origEntry.getReadableName(),
+                            origEntry.getObfName(),
+                            origEntry.getComment());
                     break;
                 case FIELD:
                     reversedEntry = MappingEntry.forField(
-                            orig_entry.getReadableOwner(), orig_entry.getReadableName(), orig_entry.getReadableDescriptor(),
-                            orig_entry.getObfOwner(), orig_entry.getObfName(), orig_entry.getObfDescriptor(),
-                            orig_entry.getComment());
+                            origEntry.getReadableOwner(), origEntry.getReadableName(), origEntry.getReadableDescriptor(),
+                            origEntry.getObfOwner(), origEntry.getObfName(), origEntry.getObfDescriptor(),
+                            origEntry.getComment());
                     break;
                 case METHOD:
                     reversedEntry = MappingEntry.forMethod(
-                            orig_entry.getReadableOwner(), orig_entry.getReadableName(), orig_entry.getReadableDescriptor(),
-                            orig_entry.getObfOwner(), orig_entry.getObfName(), orig_entry.getObfDescriptor(),
-                            orig_entry.getComment());
+                            origEntry.getReadableOwner(), origEntry.getReadableName(), origEntry.getReadableDescriptor(),
+                            origEntry.getObfOwner(), origEntry.getObfName(), origEntry.getObfDescriptor(),
+                            origEntry.getComment());
                     break;
                 default:
                     continue;
@@ -226,7 +217,7 @@ public class MappingLoader {
         }
 
         for (Map.Entry<String, String> entry : jarMapping.fields.entrySet()) {
-            String key = entry.getKey();  // obfOwner/obfName 或 obfOwner/obfName/obfDesc
+            String key = entry.getKey(); // obfOwner/obfName 或 obfOwner/obfName/obfDesc
             String readableName = entry.getValue();
 
             // 解析字段 key，可能包含描述符
