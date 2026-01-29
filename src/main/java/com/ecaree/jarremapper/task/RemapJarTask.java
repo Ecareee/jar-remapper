@@ -18,6 +18,7 @@ import org.gradle.api.tasks.TaskAction;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Collections;
 
 public class RemapJarTask extends DefaultTask {
     /**
@@ -108,6 +109,16 @@ public class RemapJarTask extends DefaultTask {
         getLogger().lifecycle("Reverse: {}", reverse);
 
         MappingData mappingData = MappingLoader.load(mappingFile, reverse);
+
+        if (extension != null) {
+            for (String pkg : extension.getExcludedPackages().getOrElse(Collections.emptyList())) {
+                mappingData.addExcludedPackage(pkg);
+            }
+            if (!mappingData.getExcludedPackages().isEmpty()) {
+                getLogger().lifecycle("Excluded packages: {}", mappingData.getExcludedPackages());
+            }
+        }
+
         getLogger().lifecycle("Loaded mappings: {} classes, {} fields, {} methods",
                 mappingData.getClassCount(),
                 mappingData.getFieldCount(),

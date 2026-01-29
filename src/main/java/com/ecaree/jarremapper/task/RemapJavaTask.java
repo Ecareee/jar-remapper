@@ -19,6 +19,7 @@ import org.gradle.api.tasks.TaskAction;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class RemapJavaTask extends DefaultTask {
@@ -92,6 +93,14 @@ public class RemapJavaTask extends DefaultTask {
         }
 
         MappingData mappingData = MappingLoader.load(mappingFile);
+        
+        for (String pkg : extension.getExcludedPackages().getOrElse(Collections.emptyList())) {
+            mappingData.addExcludedPackage(pkg);
+        }
+        if (!mappingData.getExcludedPackages().isEmpty()) {
+            getLogger().lifecycle("Excluded packages: {}", mappingData.getExcludedPackages());
+        }
+
         getLogger().lifecycle("Loaded mappings: {} classes, {} fields, {} methods",
                 mappingData.getClassCount(),
                 mappingData.getFieldCount(),

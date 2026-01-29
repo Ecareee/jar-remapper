@@ -5,7 +5,9 @@ import lombok.RequiredArgsConstructor;
 import net.md_5.specialsource.JarMapping;
 import net.md_5.specialsource.JarRemapper;
 
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 映射数据容器
@@ -24,6 +26,12 @@ public class MappingData {
      * Key: readable 格式的标识
      */
     private final Map<String, MappingEntry> entries;
+
+    /**
+     * 排除的包
+     * 这些包下的类不会被重映射
+     */
+    private final Set<String> excludedPackages = new HashSet<>();
 
     /**
      * 根据可读类名查找类映射条目
@@ -47,10 +55,42 @@ public class MappingData {
     }
 
     /**
-     * 映射类名，支持内部类和包映射
+     * 映射类名
+     * 支持内部类和包映射
      */
     public String mapClass(String className) {
+        if (isExcluded(className)) {
+            return className;
+        }
         return JarRemapper.mapTypeName(className, jarMapping.packages, jarMapping.classes, className);
+    }
+
+    public String mapField(String owner, String name) {
+        if (isExcluded(owner)) {
+            return name;
+        }
+        return jarMapping.fields.getOrDefault(owner + "/" + name, name);
+    }
+
+    public String mapMethod(String owner, String name, String descriptor) {
+        if (isExcluded(owner)) {
+            return name;
+        }
+        return jarMapping.methods.getOrDefault(owner + "/" + name + " " + descriptor, name);
+    }
+
+    public void addExcludedPackage(String packageName) {
+        String normalized = packageName.endsWith("/") ? packageName : packageName + "/";
+        excludedPackages.add(normalized);
+    }
+
+    public boolean isExcluded(String className) {
+        for (String pkg : excludedPackages) {
+            if (className.startsWith(pkg)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public int getClassCount() {

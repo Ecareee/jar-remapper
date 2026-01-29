@@ -65,6 +65,10 @@ public class InjectJarAnnotationsTask extends DefaultTask {
 
         MappingData mappingData = MappingLoader.load(mappingFile);
 
+        for (String pkg : extension.getExcludedPackages().getOrElse(java.util.Collections.emptyList())) {
+            mappingData.addExcludedPackage(pkg);
+        }
+
         AnnotationInjector injector = new AnnotationInjector(mappingData, includeReadable);
         injector.injectAnnotations(jar, jar);
 

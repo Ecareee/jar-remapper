@@ -16,6 +16,7 @@ import org.gradle.api.tasks.TaskAction;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Collections;
 
 public class RemapSmaliTask extends DefaultTask {
     @Internal
@@ -62,6 +63,14 @@ public class RemapSmaliTask extends DefaultTask {
         getLogger().lifecycle("Mapping: {}", mappingFile);
 
         MappingData mappingData = MappingLoader.load(mappingFile);
+
+        for (String pkg : extension.getExcludedPackages().getOrElse(Collections.emptyList())) {
+            mappingData.addExcludedPackage(pkg);
+        }
+        if (!mappingData.getExcludedPackages().isEmpty()) {
+            getLogger().lifecycle("Excluded packages: {}", mappingData.getExcludedPackages());
+        }
+
         getLogger().lifecycle("Loaded mappings: {} classes", mappingData.getClassCount());
 
         SmaliRemapper remapper = new SmaliRemapper(mappingData);

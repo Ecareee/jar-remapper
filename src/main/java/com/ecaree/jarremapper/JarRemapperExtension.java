@@ -7,9 +7,11 @@ import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.ProjectLayout;
 import org.gradle.api.file.RegularFileProperty;
 import org.gradle.api.model.ObjectFactory;
+import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
 
 import java.io.File;
+import java.util.Collections;
 
 @Getter
 public class JarRemapperExtension {
@@ -24,10 +26,15 @@ public class JarRemapperExtension {
 
     /**
      * SpecialSource 格式映射文件路径
-     * srg/csrg/tsrg/proguard，与 mappingsYaml 二选一，若两者都存在优先使用 YAML
+     * SRG/CSRG/TSRG/TSRG2/ProGuard，与 mappingsYaml 二选一，若两者都存在优先使用 YAML
      * 可选
      */
     private final RegularFileProperty mappingsSpecialSource;
+
+    /**
+     * 排除的包前缀列表，这些包下的类不会被重映射
+     */
+    private final ListProperty<String> excludedPackages;
 
     /**
      * 输入 JAR 文件
@@ -132,6 +139,7 @@ public class JarRemapperExtension {
 
         this.mappingsYaml = objects.fileProperty();
         this.mappingsSpecialSource = objects.fileProperty();
+        this.excludedPackages = objects.listProperty(String.class);
         this.inputJar = objects.fileProperty();
         this.outputJar = objects.fileProperty();
         this.remapJar = objects.property(Boolean.class);
@@ -150,6 +158,7 @@ public class JarRemapperExtension {
         this.reportsDir = objects.directoryProperty();
 
         mappingsYaml.convention(layout.getProjectDirectory().file("mappings.yaml"));
+        excludedPackages.convention(Collections.emptySet());
         inputJar.convention(layout.getProjectDirectory().file("original/classes.jar"));
         outputJar.convention(layout.getProjectDirectory().file("original/classes-readable.jar"));
         remapJar.convention(true);

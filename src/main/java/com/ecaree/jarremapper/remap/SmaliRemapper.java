@@ -63,6 +63,9 @@ public class SmaliRemapper {
         log.info("Input: {}", inputDir);
         log.info("Output: {}", outputDir);
         log.info("Found {} smali files", smaliFiles.size());
+        if (!mappingData.getExcludedPackages().isEmpty()) {
+            log.info("Excluded packages: {}", mappingData.getExcludedPackages());
+        }
 
         FileUtils.deleteDirectory(outputDir);
         FileUtils.ensureDirectory(outputDir);
@@ -71,16 +74,20 @@ public class SmaliRemapper {
 
         int processedCount = 0;
         int remappedCount = 0;
+        int skippedCount = 0;
 
         for (File smaliFile : smaliFiles) {
             RemapResult result = processSmaliFile(smaliFile, inputDir, outputDir, jarMapping);
             processedCount++;
-            if (result.wasRemapped) {
+            if (result.wasSkipped) {
+                skippedCount++;
+            } else if (result.wasRemapped) {
                 remappedCount++;
             }
         }
 
-        log.info("Smali remapping completed: {}/{} files remapped", remappedCount, processedCount);
+        log.info("Smali remapping completed: {}/{} files remapped, {} skipped",
+                remappedCount, processedCount, skippedCount);
     }
 
     private RemapResult processSmaliFile(File inputFile, File inputDir, File outputDir,
@@ -93,7 +100,14 @@ public class SmaliRemapper {
             Path relativePath = inputDir.toPath().relativize(inputFile.toPath());
             File outputFile = new File(outputDir, relativePath.toString());
             FileUtils.copyFile(inputFile, outputFile);
-            return new RemapResult(false);
+            return new RemapResult(false, false);
+        }
+
+        if (mappingData.isExcluded(currentClass)) {
+            Path relativePath = inputDir.toPath().relativize(inputFile.toPath());
+            File outputFile = new File(outputDir, relativePath.toString());
+            FileUtils.copyFile(inputFile, outputFile);
+            return new RemapResult(false, true);
         }
 
         StringBuilder result = new StringBuilder();
@@ -121,7 +135,7 @@ public class SmaliRemapper {
             anyRemapped = true;
         }
 
-        return new RemapResult(anyRemapped);
+        return new RemapResult(anyRemapped, false);
     }
 
     private String extractCurrentClass(String[] lines) {
@@ -175,8 +189,7 @@ public class SmaliRemapper {
             String fieldName = fieldDefMatcher.group(1);
             String fieldType = fieldDefMatcher.group(2);
 
-            String key = currentClass + "/" + fieldName;
-            String mappedName = jarMapping.fields.getOrDefault(key, fieldName);
+            String mappedName = mappingData.mapField(currentClass, fieldName);
             String mappedType = remapTypeDescriptor(fieldType);
 
             code = code.substring(0, fieldDefMatcher.start(1)) + mappedName + ":"
@@ -191,8 +204,7 @@ public class SmaliRemapper {
             String returnType = methodDefMatcher.group(3);
 
             String descriptor = "(" + params + ")" + returnType.split("\\s")[0];
-            String key = currentClass + "/" + methodName + " " + descriptor;
-            String mappedName = jarMapping.methods.getOrDefault(key, methodName);
+            String mappedName = mappingData.mapMethod(currentClass, methodName, descriptor);
 
             String mappedParams = remapTypeDescriptor(params);
             String mappedReturn = remapTypeDescriptor(returnType);
@@ -222,8 +234,7 @@ public class SmaliRemapper {
 
             String mappedName = memberName;
             if (separator.equals(":")) {
-                String fieldKey = ownerClass + "/" + memberName;
-                mappedName = jarMapping.fields.getOrDefault(fieldKey, memberName);
+                mappedName = mappingData.mapField(ownerClass, memberName);
             } else if (separator.equals("(")) {
                 int closeParenIdx = code.indexOf(')', memberRefMatcher.end());
                 if (closeParenIdx > 0) {
@@ -231,8 +242,7 @@ public class SmaliRemapper {
                     String params = code.substring(memberRefMatcher.end(), closeParenIdx);
                     String returnType = code.substring(closeParenIdx + 1, returnEnd);
                     String descriptor = "(" + params + ")" + returnType;
-                    String methodKey = ownerClass + "/" + memberName + " " + descriptor;
-                    mappedName = jarMapping.methods.getOrDefault(methodKey, memberName);
+                    mappedName = mappingData.mapMethod(ownerClass, memberName, descriptor);
                 }
             }
 
@@ -333,5 +343,6 @@ public class SmaliRemapper {
     @RequiredArgsConstructor
     private static class RemapResult {
         final boolean wasRemapped;
+        final boolean wasSkipped;
     }
 }
