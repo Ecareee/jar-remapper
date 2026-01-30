@@ -158,7 +158,7 @@ public class JavaRemapper {
         RemappingVisitor visitor = new RemappingVisitor(mappingData);
         visitor.initImports(cu);
 
-        cu.accept(new RemappingVisitor(mappingData), null);
+        cu.accept(visitor, null);
         remapPackageDeclaration(cu);
 
         File outputFile = calculateOutputFile(cu, inputFile, inputDir, outputDir);
