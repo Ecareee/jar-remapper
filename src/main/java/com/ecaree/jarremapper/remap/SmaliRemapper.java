@@ -31,7 +31,7 @@ public class SmaliRemapper {
     private static final Pattern METHOD_DEF_PATTERN = Pattern.compile(
             "^\\.method\\s+(?:.+\\s+)?([a-zA-Z_<][a-zA-Z0-9_>$]*)\\(([^)]*)\\)(.+)");
     private static final Pattern MEMBER_REF_PATTERN = Pattern.compile(
-            "(L[^;]+;)->([a-zA-Z_<][a-zA-Z0-9_>$]*)([:（(])");
+            "(L[^;]+;)->([a-zA-Z_<][a-zA-Z0-9_>$]*)([:(])");
     private static final Pattern STRING_PATTERN = Pattern.compile(
             "\"(?:[^\"\\\\]|\\\\.)*\"");
 
