@@ -51,6 +51,7 @@ import java.util.Map;
 public class JavaRemapper {
     private final MappingData mappingData;
     private final List<File> libraryJars;
+    private final Map<String, List<String>> simpleNameToObfClasses;
 
     public JavaRemapper(MappingData mappingData) {
         this(mappingData, new ArrayList<>());
@@ -59,6 +60,7 @@ public class JavaRemapper {
     public JavaRemapper(MappingData mappingData, List<File> libraryJars) {
         this.mappingData = mappingData;
         this.libraryJars = libraryJars != null ? libraryJars : new ArrayList<>();
+        this.simpleNameToObfClasses = buildSimpleNameIndex();
     }
 
     /**
@@ -68,6 +70,16 @@ public class JavaRemapper {
      */
     private static void printCurrentLogger() {
         System.out.println("Current logger: " + log.getClass().getName());
+    }
+
+    private Map<String, List<String>> buildSimpleNameIndex() {
+        Map<String, List<String>> index = new HashMap<>();
+        for (String obfClass : mappingData.getJarMapping().classes.keySet()) {
+            int lastSlash = obfClass.lastIndexOf('/');
+            String simpleName = lastSlash >= 0 ? obfClass.substring(lastSlash + 1) : obfClass;
+            index.computeIfAbsent(simpleName, k -> new ArrayList<>()).add(obfClass);
+        }
+        return index;
     }
 
     /**
@@ -155,7 +167,7 @@ public class JavaRemapper {
         // 保持原有代码风格
         LexicalPreservingPrinter.setup(cu);
 
-        RemappingVisitor visitor = new RemappingVisitor(mappingData);
+        RemappingVisitor visitor = new RemappingVisitor(mappingData, simpleNameToObfClasses);
         visitor.initImports(cu);
 
         cu.accept(visitor, null);
@@ -247,23 +259,12 @@ public class JavaRemapper {
     @RequiredArgsConstructor
     private static class RemappingVisitor extends VoidVisitorAdapter<Void> {
         private final MappingData mappingData;
+        private final Map<String, List<String>> simpleNameToObfClasses;
         private final Map<String, String> simpleNameCache = new HashMap<>();
-        private final Map<String, List<String>> simpleNameToObfClasses = new HashMap<>();
         private final Map<String, String> importedClasses = new HashMap<>();
-        private boolean indexBuilt = false;
 
         private JarMapping getJarMapping() {
             return mappingData.getJarMapping();
-        }
-
-        private void ensureIndexBuilt() {
-            if (indexBuilt) return;
-            indexBuilt = true;
-            for (String obfClass : getJarMapping().classes.keySet()) {
-                int lastSlash = obfClass.lastIndexOf('/');
-                String simpleName = lastSlash >= 0 ? obfClass.substring(lastSlash + 1) : obfClass;
-                simpleNameToObfClasses.computeIfAbsent(simpleName, s -> new ArrayList<>()).add(obfClass);
-            }
         }
 
         public void initImports(CompilationUnit cu) {
@@ -486,8 +487,6 @@ public class JavaRemapper {
          * 优先使用 SymbolSolver 解析完整类名，回退到简单名匹配
          */
         private String remapSimpleName(String simpleName, Node context) {
-            ensureIndexBuilt();
-
             // 1. 优先尝试 SymbolSolver 解析
             try {
                 if (context instanceof ClassOrInterfaceType) {
