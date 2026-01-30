@@ -62,6 +62,15 @@ public class JavaRemapper {
     }
 
     /**
+     * 使用 sout 打印当前 logger，不使用 log.info 打印
+     * 如果输出 org.gradle.internal.logging.slf4j.OutputEventListenerBackedLogger 说明 slf4j 绑定到了 Gradle 内部的 logger，日志可能不会输出
+     * 如果输出 org.apache.logging.slf4j.Log4jLogger 说明 slf4j 绑定到了 log4j-slf4j2-impl，日志可以正常输出
+     */
+    private static void printCurrentLogger() {
+        System.out.println("Current logger: " + log.getClass().getName());
+    }
+
+    /**
      * 重映射 Java 源码目录
      *
      * @param inputDir  输入目录
@@ -70,7 +79,7 @@ public class JavaRemapper {
      * @throws IOException 如果 IO 操作失败
      */
     public int remapJavaSource(File inputDir, File outputDir) throws IOException {
-        System.out.println("Current logger: " + log.getClass().getName());
+        printCurrentLogger();
 
         if (!inputDir.exists()) {
             throw new IOException("Input directory does not exist: " + inputDir);
