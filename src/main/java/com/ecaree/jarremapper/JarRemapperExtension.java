@@ -158,7 +158,7 @@ public class JarRemapperExtension {
         this.reportsDir = objects.directoryProperty();
 
         mappingsYaml.convention(layout.getProjectDirectory().file("mappings.yaml"));
-        excludedPackages.convention(Collections.emptySet());
+        excludedPackages.convention(Collections.emptyList());
         inputJar.convention(layout.getProjectDirectory().file("original/classes.jar"));
         outputJar.convention(layout.getProjectDirectory().file("original/classes-readable.jar"));
         remapJar.convention(true);
