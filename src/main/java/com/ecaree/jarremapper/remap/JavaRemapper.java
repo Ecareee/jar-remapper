@@ -155,6 +155,9 @@ public class JavaRemapper {
         // 保持原有代码风格
         LexicalPreservingPrinter.setup(cu);
 
+        RemappingVisitor visitor = new RemappingVisitor(mappingData);
+        visitor.initImports(cu);
+
         cu.accept(new RemappingVisitor(mappingData), null);
         remapPackageDeclaration(cu);
 
@@ -245,10 +248,36 @@ public class JavaRemapper {
     private static class RemappingVisitor extends VoidVisitorAdapter<Void> {
         private final MappingData mappingData;
         private final Map<String, String> simpleNameCache = new HashMap<>();
+        private final Map<String, List<String>> simpleNameToObfClasses = new HashMap<>();
+        private final Map<String, String> importedClasses = new HashMap<>();
+        private boolean indexBuilt = false;
 
         private JarMapping getJarMapping() {
             return mappingData.getJarMapping();
         }
+
+        private void ensureIndexBuilt() {
+            if (indexBuilt) return;
+            indexBuilt = true;
+            for (String obfClass : getJarMapping().classes.keySet()) {
+                int lastSlash = obfClass.lastIndexOf('/');
+                String simpleName = lastSlash >= 0 ? obfClass.substring(lastSlash + 1) : obfClass;
+                simpleNameToObfClasses.computeIfAbsent(simpleName, s -> new ArrayList<>()).add(obfClass);
+            }
+        }
+
+        public void initImports(CompilationUnit cu) {
+            importedClasses.clear();
+            for (ImportDeclaration imp : cu.getImports()) {
+                if (!imp.isAsterisk() && !imp.isStatic()) {
+                    String fullName = imp.getNameAsString().replace('.', '/');
+                    int lastSlash = fullName.lastIndexOf('/');
+                    String simpleName = lastSlash >= 0 ? fullName.substring(lastSlash + 1) : fullName;
+                    importedClasses.put(simpleName, fullName);
+                }
+            }
+        }
+
 
         @Override
         public void visit(ImportDeclaration n, Void arg) {
@@ -457,6 +486,9 @@ public class JavaRemapper {
          * 优先使用 SymbolSolver 解析完整类名，回退到简单名匹配
          */
         private String remapSimpleName(String simpleName, Node context) {
+            ensureIndexBuilt();
+
+            // 1. 优先尝试 SymbolSolver 解析
             try {
                 if (context instanceof ClassOrInterfaceType) {
                     ClassOrInterfaceType type = (ClassOrInterfaceType) context;
@@ -471,31 +503,54 @@ public class JavaRemapper {
                         return null;
                     }
                 }
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                // SymbolSolver 失败，进入回退逻辑
             }
 
+            // 2. 检查缓存
             if (simpleNameCache.containsKey(simpleName)) {
                 return simpleNameCache.get(simpleName);
             }
 
-            JarMapping jarMapping = getJarMapping();
-            for (Map.Entry<String, String> entry : jarMapping.classes.entrySet()) {
-                String obfClass = entry.getKey();
-                String readableClass = entry.getValue();
-
-                int lastSlash = obfClass.lastIndexOf('/');
-                String obfSimple = lastSlash >= 0 ? obfClass.substring(lastSlash + 1) : obfClass;
-
-                if (obfSimple.equals(simpleName)) {
-                    int newLastSlash = readableClass.lastIndexOf('/');
-                    String result = newLastSlash >= 0 ? readableClass.substring(newLastSlash + 1) : readableClass;
-                    simpleNameCache.put(simpleName, result);
-                    return result;
-                }
+            // 3. 检查是否存在该简单名的映射
+            List<String> candidates = simpleNameToObfClasses.get(simpleName);
+            if (candidates == null || candidates.isEmpty()) {
+                simpleNameCache.put(simpleName, null);
+                return null;
             }
 
-            simpleNameCache.put(simpleName, null);
+            String result;
+            if (candidates.size() == 1) {
+                // 4. 无冲突：直接使用唯一匹配
+                result = getRemappedSimpleName(candidates.get(0));
+            } else {
+                // 5. 有冲突：尝试从 import 推断
+                result = resolveConflictFromImports(simpleName, candidates);
+            }
+
+            simpleNameCache.put(simpleName, result);
+            return result;
+        }
+
+        private String resolveConflictFromImports(String simpleName, List<String> candidates) {
+            String importedClass = importedClasses.get(simpleName);
+            if (importedClass != null) {
+                for (String candidate : candidates) {
+                    if (candidate.equals(importedClass)) {
+                        return getRemappedSimpleName(candidate);
+                    }
+                }
+            }
+            log.warn("Ambiguous simple name '{}' matches multiple classes: {}, skipping remapping",
+                    simpleName, candidates);
             return null;
+        }
+
+        private String getRemappedSimpleName(String obfClass) {
+            String readableClass = getJarMapping().classes.get(obfClass);
+            if (readableClass == null) return null;
+            int lastSlash = readableClass.lastIndexOf('/');
+            return lastSlash >= 0 ? readableClass.substring(lastSlash + 1) : readableClass;
         }
 
         private String getEnclosingClassName(Node node) {
