@@ -92,12 +92,20 @@ public class MappingLoader {
             String key = entry.getKey(); // obfOwner/obfName
             String readableName = entry.getValue();
 
-            int slashIdx = key.lastIndexOf('/');
-            String obfOwner = key.substring(0, slashIdx);
+            // 检查是否有空格分隔的描述符
+            int spaceIdx = key.indexOf(' ');
+            String keyWithoutDesc = spaceIdx > 0 ? key.substring(0, spaceIdx) : key;
+            String obfDesc = spaceIdx > 0 ? key.substring(spaceIdx + 1) : null;
+
+            int slashIdx = keyWithoutDesc.lastIndexOf('/');
+            String obfOwner = keyWithoutDesc.substring(0, slashIdx);
+            String obfName = keyWithoutDesc.substring(slashIdx + 1);
             String readableOwner = orig.classes.getOrDefault(obfOwner, obfOwner);
 
-            String newKey = readableOwner + "/" + readableName;
-            String obfName = key.substring(slashIdx + 1);
+            // 反转时保留描述符格式
+            String newKey = obfDesc != null
+                    ? readableOwner + "/" + readableName + " " + remapDescriptor(obfDesc, orig)
+                    : readableOwner + "/" + readableName;
             reversed.fields.put(newKey, obfName);
         }
 
