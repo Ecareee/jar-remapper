@@ -262,6 +262,7 @@ public class JavaRemapper {
         private final Map<String, List<String>> simpleNameToObfClasses;
         private final Map<String, String> simpleNameCache = new HashMap<>();
         private final Map<String, String> importedClasses = new HashMap<>();
+        private String currentPackage;
 
         private JarMapping getJarMapping() {
             return mappingData.getJarMapping();
@@ -269,6 +270,12 @@ public class JavaRemapper {
 
         public void initImports(CompilationUnit cu) {
             importedClasses.clear();
+            simpleNameCache.clear();
+
+            currentPackage = cu.getPackageDeclaration()
+                    .map(pkg -> pkg.getNameAsString().replace('.', '/'))
+                    .orElse("");
+
             for (ImportDeclaration imp : cu.getImports()) {
                 if (!imp.isAsterisk() && !imp.isStatic()) {
                     String fullName = imp.getNameAsString().replace('.', '/');
@@ -540,6 +547,16 @@ public class JavaRemapper {
                     }
                 }
             }
+            
+            if (currentPackage != null && !currentPackage.isEmpty()) {
+                String samePackageClass = currentPackage + "/" + simpleName;
+                for (String candidate : candidates) {
+                    if (candidate.equals(samePackageClass)) {
+                        return getRemappedSimpleName(candidate);
+                    }
+                }
+            }
+
             log.warn("Ambiguous simple name '{}' matches multiple classes: {}, skipping remapping",
                     simpleName, candidates);
             return null;
