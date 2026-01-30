@@ -16,6 +16,7 @@ import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithSimpleName;
 import com.github.javaparser.ast.type.ArrayType;
@@ -40,8 +41,10 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Java 重映射
@@ -52,6 +55,7 @@ public class JavaRemapper {
     private final MappingData mappingData;
     private final List<File> libraryJars;
     private final Map<String, List<String>> simpleNameToObfClasses;
+    private final Map<String, Map<String, String>> staticMemberIndex;
 
     public JavaRemapper(MappingData mappingData) {
         this(mappingData, new ArrayList<>());
@@ -61,6 +65,7 @@ public class JavaRemapper {
         this.mappingData = mappingData;
         this.libraryJars = libraryJars != null ? libraryJars : new ArrayList<>();
         this.simpleNameToObfClasses = buildSimpleNameIndex();
+        this.staticMemberIndex = buildStaticMemberIndex();
     }
 
     /**
@@ -79,6 +84,54 @@ public class JavaRemapper {
             String simpleName = lastSlash >= 0 ? obfClass.substring(lastSlash + 1) : obfClass;
             index.computeIfAbsent(simpleName, k -> new ArrayList<>()).add(obfClass);
         }
+        return index;
+    }
+
+    private Map<String, Map<String, String>> buildStaticMemberIndex() {
+        Map<String, Map<String, String>> index = new HashMap<>();
+        JarMapping jarMapping = mappingData.getJarMapping();
+
+        // 索引字段：owner/name -> remappedName
+        for (Map.Entry<String, String> entry : jarMapping.fields.entrySet()) {
+            String key = entry.getKey();
+            int slashIdx = key.lastIndexOf('/');
+            if (slashIdx > 0) {
+                String owner = key.substring(0, slashIdx);
+                String name = key.substring(slashIdx + 1);
+                int spaceIdx = name.indexOf(' ');
+                if (spaceIdx > 0) {
+                    name = name.substring(0, spaceIdx);
+                }
+                index.computeIfAbsent(owner, k -> new HashMap<>())
+                        .put(name, entry.getValue());
+            }
+        }
+
+        // 索引方法：owner/name -> remappedName，忽略描述符差异
+        for (Map.Entry<String, String> entry : jarMapping.methods.entrySet()) {
+            String key = entry.getKey();
+            int spaceIdx = key.indexOf(' ');
+            if (spaceIdx > 0) {
+                String ownerAndName = key.substring(0, spaceIdx);
+                int slashIdx = ownerAndName.lastIndexOf('/');
+                if (slashIdx > 0) {
+                    String owner = ownerAndName.substring(0, slashIdx);
+                    String name = ownerAndName.substring(slashIdx + 1);
+                    String remapped = entry.getValue();
+                    Map<String, String> memberMap = index.computeIfAbsent(owner, k -> new HashMap<>());
+                    if (memberMap.containsKey(name)) {
+                        String existing = memberMap.get(name);
+                        if (existing != null && !existing.equals(remapped)) {
+                            // 同名方法映射到不同名称，标记为冲突
+                            memberMap.put(name, null);
+                        }
+                    } else {
+                        memberMap.put(name, remapped);
+                    }
+                }
+            }
+        }
+
         return index;
     }
 
@@ -167,7 +220,7 @@ public class JavaRemapper {
         // 保持原有代码风格
         LexicalPreservingPrinter.setup(cu);
 
-        RemappingVisitor visitor = new RemappingVisitor(mappingData, simpleNameToObfClasses);
+        RemappingVisitor visitor = new RemappingVisitor(mappingData, simpleNameToObfClasses, staticMemberIndex);
         visitor.initImports(cu);
 
         cu.accept(visitor, null);
@@ -260,8 +313,12 @@ public class JavaRemapper {
     private static class RemappingVisitor extends VoidVisitorAdapter<Void> {
         private final MappingData mappingData;
         private final Map<String, List<String>> simpleNameToObfClasses;
+        private final Map<String, Map<String, String>> staticMemberIndex;
         private final Map<String, String> simpleNameCache = new HashMap<>();
         private final Map<String, String> importedClasses = new HashMap<>();
+        private final Set<String> importedPackages = new HashSet<>();
+        private final Map<String, String> staticImportedMembers = new HashMap<>();
+        private final Set<String> staticAsteriskClasses = new HashSet<>();
         private String currentPackage;
 
         private JarMapping getJarMapping() {
@@ -269,32 +326,91 @@ public class JavaRemapper {
         }
 
         public void initImports(CompilationUnit cu) {
-            importedClasses.clear();
             simpleNameCache.clear();
+            importedClasses.clear();
+            importedPackages.clear();
+            staticImportedMembers.clear();
+            staticAsteriskClasses.clear();
 
             currentPackage = cu.getPackageDeclaration()
                     .map(pkg -> pkg.getNameAsString().replace('.', '/'))
                     .orElse("");
 
             for (ImportDeclaration imp : cu.getImports()) {
-                if (!imp.isAsterisk() && !imp.isStatic()) {
-                    String fullName = imp.getNameAsString().replace('.', '/');
-                    int lastSlash = fullName.lastIndexOf('/');
-                    String simpleName = lastSlash >= 0 ? fullName.substring(lastSlash + 1) : fullName;
-                    importedClasses.put(simpleName, fullName);
+                if (imp.isAsterisk()) {
+                    if (imp.isStatic()) {
+                        String className = imp.getNameAsString().replace('.', '/');
+                        staticAsteriskClasses.add(className);
+                    } else {
+                        String pkgName = imp.getNameAsString().replace('.', '/');
+                        importedPackages.add(pkgName);
+                    }
+                    continue;
+                }
+
+                String fullName = imp.getNameAsString();
+
+                if (imp.isStatic()) {
+                    int lastDot = fullName.lastIndexOf('.');
+                    if (lastDot > 0) {
+                        String className = fullName.substring(0, lastDot);
+                        String memberName = fullName.substring(lastDot + 1);
+                        String internalName = className.replace('.', '/');
+                        staticImportedMembers.put(memberName, internalName);
+                        int classLastDot = className.lastIndexOf('.');
+                        String simpleName = classLastDot >= 0 ? className.substring(classLastDot + 1) : className;
+                        importedClasses.put(simpleName, internalName);
+                    }
+                } else {
+                    String internalName = fullName.replace('.', '/');
+                    int lastSlash = internalName.lastIndexOf('/');
+                    String simpleName = lastSlash >= 0 ? internalName.substring(lastSlash + 1) : internalName;
+                    importedClasses.put(simpleName, internalName);
                 }
             }
         }
 
-
         @Override
         public void visit(ImportDeclaration n, Void arg) {
-            String importName = n.getNameAsString();
-            String internalName = importName.replace('.', '/');
-
-            String remapped = mappingData.mapClass(internalName);
-            if (!remapped.equals(internalName)) {
-                n.setName(remapped.replace('/', '.'));
+            if (n.isAsterisk()) {
+                if (n.isStatic()) {
+                    // 静态星号 import
+                    String className = n.getNameAsString();
+                    String internalName = className.replace('.', '/');
+                    String remapped = mappingData.mapClass(internalName);
+                    if (!remapped.equals(internalName)) {
+                        n.setName(remapped.replace('/', '.'));
+                    }
+                } else {
+                    // 普通星号 import
+                    String pkgName = n.getNameAsString();
+                    String remappedPkg = remapPackageName(pkgName.replace('.', '/'));
+                    if (remappedPkg != null) {
+                        n.setName(remappedPkg.replace('/', '.'));
+                    }
+                }
+            } else if (n.isStatic()) {
+                // 静态 import
+                String fullName = n.getNameAsString();
+                int lastDot = fullName.lastIndexOf('.');
+                if (lastDot > 0) {
+                    String className = fullName.substring(0, lastDot);
+                    String memberName = fullName.substring(lastDot + 1);
+                    String internalName = className.replace('.', '/');
+                    String remappedClass = mappingData.mapClass(internalName);
+                    String remappedMember = remapStaticMember(internalName, memberName);
+                    if (!remappedClass.equals(internalName) || !remappedMember.equals(memberName)) {
+                        n.setName(remappedClass.replace('/', '.') + "." + remappedMember);
+                    }
+                }
+            } else {
+                // 普通 import
+                String importName = n.getNameAsString();
+                String internalName = importName.replace('.', '/');
+                String remapped = mappingData.mapClass(internalName);
+                if (!remapped.equals(internalName)) {
+                    n.setName(remapped.replace('/', '.'));
+                }
             }
             super.visit(n, arg);
         }
@@ -454,13 +570,75 @@ public class JavaRemapper {
         }
 
         @Override
+        public void visit(NameExpr n, Void arg) {
+            String name = n.getNameAsString();
+
+            String ownerClass = staticImportedMembers.get(name);
+            if (ownerClass != null) {
+                String remapped = remapStaticMember(ownerClass, name);
+                if (!remapped.equals(name)) {
+                    n.setName(remapped);
+                }
+                super.visit(n, arg);
+                return;
+            }
+
+            String foundOwner = null;
+            String foundRemapped = null;
+            for (String asteriskClass : staticAsteriskClasses) {
+                String remapped = remapStaticMember(asteriskClass, name);
+                if (!remapped.equals(name)) {
+                    if (foundOwner != null && !foundOwner.equals(asteriskClass)) {
+                        log.warn("Ambiguous static member '{}' found in multiple asterisk imports: {}, {}",
+                                name, foundOwner, asteriskClass);
+                        super.visit(n, arg);
+                        return;
+                    }
+                    foundOwner = asteriskClass;
+                    foundRemapped = remapped;
+                }
+            }
+
+            if (foundRemapped != null) {
+                n.setName(foundRemapped);
+            }
+
+            super.visit(n, arg);
+        }
+
+        @Override
         public void visit(MethodCallExpr n, Void arg) {
+            boolean remapped = false;
+
             try {
                 ResolvedMethodDeclaration resolved = n.resolve();
                 String ownerClass = resolved.declaringType().getQualifiedName().replace('.', '/');
                 tryRemapMethod(n, ownerClass, n.getNameAsString(), buildDescriptor(resolved));
-            } catch (Exception ignored) {
+                remapped = true;
+            } catch (Exception e) {
+                // resolve 失败
             }
+
+            if (!remapped && !n.getScope().isPresent()) {
+                String methodName = n.getNameAsString();
+
+                String ownerClass = staticImportedMembers.get(methodName);
+                if (ownerClass != null) {
+                    String remappedName = remapStaticMember(ownerClass, methodName);
+                    if (!remappedName.equals(methodName)) {
+                        n.setName(remappedName);
+                    }
+                } else {
+                    for (String asteriskClass : staticAsteriskClasses) {
+                        String remappedName = remapStaticMember(asteriskClass, methodName);
+                        if (!remappedName.equals(methodName)) {
+                            n.setName(remappedName);
+                            break;
+                        }
+                    }
+                }
+            }
+
             super.visit(n, arg);
         }
 
@@ -547,7 +725,7 @@ public class JavaRemapper {
                     }
                 }
             }
-            
+
             if (currentPackage != null && !currentPackage.isEmpty()) {
                 String samePackageClass = currentPackage + "/" + simpleName;
                 for (String candidate : candidates) {
@@ -555,6 +733,21 @@ public class JavaRemapper {
                         return getRemappedSimpleName(candidate);
                     }
                 }
+            }
+
+            List<String> asteriskImportMatches = new ArrayList<>();
+            for (String candidate : candidates) {
+                int lastSlash = candidate.lastIndexOf('/');
+                String candidatePkg = lastSlash >= 0 ? candidate.substring(0, lastSlash) : "";
+                if (importedPackages.contains(candidatePkg)) {
+                    asteriskImportMatches.add(candidate);
+                }
+            }
+            if (asteriskImportMatches.size() == 1) {
+                return getRemappedSimpleName(asteriskImportMatches.get(0));
+            } else if (asteriskImportMatches.size() > 1) {
+                log.warn("Ambiguous simple name '{}' matches multiple classes from asterisk imports: {}",
+                        simpleName, asteriskImportMatches);
             }
 
             log.warn("Ambiguous simple name '{}' matches multiple classes: {}, skipping remapping",
@@ -567,6 +760,50 @@ public class JavaRemapper {
             if (readableClass == null) return null;
             int lastSlash = readableClass.lastIndexOf('/');
             return lastSlash >= 0 ? readableClass.substring(lastSlash + 1) : readableClass;
+        }
+
+        private String remapPackageName(String internalPkg) {
+            JarMapping jarMapping = getJarMapping();
+
+            String pkgWithSlash = internalPkg.endsWith("/") ? internalPkg : internalPkg + "/";
+            String remapped = jarMapping.packages.get(pkgWithSlash);
+            if (remapped != null) {
+                return remapped.endsWith("/") ? remapped.substring(0, remapped.length() - 1) : remapped;
+            }
+
+            for (Map.Entry<String, String> entry : jarMapping.classes.entrySet()) {
+                String obfClass = entry.getKey();
+                String readableClass = entry.getValue();
+                int obfLastSlash = obfClass.lastIndexOf('/');
+                if (obfLastSlash > 0) {
+                    String obfPkg = obfClass.substring(0, obfLastSlash);
+                    if (obfPkg.equals(internalPkg)) {
+                        int readableLastSlash = readableClass.lastIndexOf('/');
+                        if (readableLastSlash > 0) {
+                            return readableClass.substring(0, readableLastSlash);
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private String remapStaticMember(String ownerClass, String memberName) {
+            Map<String, String> memberMap = staticMemberIndex.get(ownerClass);
+            if (memberMap == null) {
+                return memberName;
+            }
+
+            String remapped = memberMap.get(memberName);
+            if (remapped == null && memberMap.containsKey(memberName)) {
+                // 值为 null 但 key 存在，表示有冲突
+                log.warn("Ambiguous static member import: {}.{} maps to multiple names",
+                        ownerClass.replace('/', '.'), memberName);
+                return memberName;
+            }
+
+            return remapped != null ? remapped : memberName;
         }
 
         private String getEnclosingClassName(Node node) {
