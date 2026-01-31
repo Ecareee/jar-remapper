@@ -564,7 +564,8 @@ public class JavaRemapper {
                     String ownerClass = scopeType.asReferenceType().getQualifiedName().replace('.', '/');
                     tryRemapField(n, ownerClass, n.getNameAsString());
                 }
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                log.debug("Failed to resolve field access '{}': {}", n, e.getMessage());
             }
             super.visit(n, arg);
         }
@@ -616,7 +617,7 @@ public class JavaRemapper {
                 tryRemapMethod(n, ownerClass, n.getNameAsString(), buildDescriptor(resolved));
                 remapped = true;
             } catch (Exception e) {
-                // resolve 失败
+                log.debug("Failed to resolve method call '{}': {}", n.getNameAsString(), e.getMessage());
             }
 
             if (!remapped && !n.getScope().isPresent()) {
@@ -688,7 +689,8 @@ public class JavaRemapper {
                     }
                 }
             } catch (Exception e) {
-                // SymbolSolver 失败，进入回退逻辑
+                log.debug("Failed to resolve type '{}', falling back to simple name matching: {}",
+                        simpleName, e.getMessage());
             }
 
             // 2. 检查缓存
@@ -814,6 +816,8 @@ public class JavaRemapper {
                         ResolvedReferenceTypeDeclaration resolved = ((ClassOrInterfaceDeclaration) current).resolve();
                         return resolved.getQualifiedName().replace('.', '/');
                     } catch (Exception e) {
+                        log.debug("Failed to resolve enclosing class '{}': {}",
+                                ((ClassOrInterfaceDeclaration) current).getNameAsString(), e.getMessage());
                         return null;
                     }
                 }
@@ -838,6 +842,8 @@ public class JavaRemapper {
                 try {
                     sb.append(toDescriptor(param.getType().resolve()));
                 } catch (Exception e) {
+                    log.debug("Failed to resolve parameter type '{}', using Object: {}",
+                            param.getType(), e.getMessage());
                     sb.append("Ljava/lang/Object;");
                 }
             }
@@ -845,6 +851,8 @@ public class JavaRemapper {
             try {
                 sb.append(toDescriptor(method.getType().resolve()));
             } catch (Exception e) {
+                log.debug("Failed to resolve return type '{}', using void: {}",
+                        method.getType(), e.getMessage());
                 sb.append("V");
             }
             return sb.toString();
