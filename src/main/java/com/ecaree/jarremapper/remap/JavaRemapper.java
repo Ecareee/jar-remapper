@@ -9,23 +9,28 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.NodeList;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.body.FieldDeclaration;
-import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.body.Parameter;
-import com.github.javaparser.ast.body.VariableDeclarator;
-import com.github.javaparser.ast.expr.FieldAccessExpr;
-import com.github.javaparser.ast.expr.MethodCallExpr;
-import com.github.javaparser.ast.expr.NameExpr;
-import com.github.javaparser.ast.expr.VariableDeclarationExpr;
+import com.github.javaparser.ast.body.*;
+import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.nodeTypes.NodeWithSimpleName;
+import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.CatchClause;
+import com.github.javaparser.ast.stmt.ExpressionStmt;
+import com.github.javaparser.ast.stmt.ForEachStmt;
+import com.github.javaparser.ast.stmt.ForStmt;
+import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.ast.stmt.TryStmt;
 import com.github.javaparser.ast.type.ArrayType;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import com.github.javaparser.ast.type.ReferenceType;
 import com.github.javaparser.ast.type.Type;
+import com.github.javaparser.ast.type.WildcardType;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.printer.lexicalpreservation.LexicalPreservingPrinter;
+import com.github.javaparser.resolution.UnsolvedSymbolException;
+import com.github.javaparser.resolution.declarations.ResolvedFieldDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedValueDeclaration;
 import com.github.javaparser.resolution.types.ResolvedType;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
@@ -55,7 +60,10 @@ public class JavaRemapper {
     private final MappingData mappingData;
     private final List<File> libraryJars;
     private final Map<String, List<String>> simpleNameToObfClasses;
-    private final Map<String, Map<String, String>> staticMemberIndex;
+    private final Map<String, Map<String, String>> staticFieldIndex;
+    private final Map<String, Map<String, String>> staticMethodIndex;
+    private final Map<String, String> packageMappingIndex;
+    private final Map<String, String> uniqueFieldMappings;
 
     public JavaRemapper(MappingData mappingData) {
         this(mappingData, new ArrayList<>());
@@ -65,7 +73,10 @@ public class JavaRemapper {
         this.mappingData = mappingData;
         this.libraryJars = libraryJars != null ? libraryJars : new ArrayList<>();
         this.simpleNameToObfClasses = buildSimpleNameIndex();
-        this.staticMemberIndex = buildStaticMemberIndex();
+        this.staticFieldIndex = buildStaticFieldIndex();
+        this.staticMethodIndex = buildStaticMethodIndex();
+        this.packageMappingIndex = buildPackageMappingIndex();
+        this.uniqueFieldMappings = buildUniqueFieldMappings();
     }
 
     /**
@@ -80,18 +91,17 @@ public class JavaRemapper {
     private Map<String, List<String>> buildSimpleNameIndex() {
         Map<String, List<String>> index = new HashMap<>();
         for (String obfClass : mappingData.getJarMapping().classes.keySet()) {
-            int lastSlash = obfClass.lastIndexOf('/');
-            String simpleName = lastSlash >= 0 ? obfClass.substring(lastSlash + 1) : obfClass;
+            int lastSeparator = Math.max(obfClass.lastIndexOf('/'), obfClass.lastIndexOf('$'));
+            String simpleName = lastSeparator >= 0 ? obfClass.substring(lastSeparator + 1) : obfClass;
             index.computeIfAbsent(simpleName, k -> new ArrayList<>()).add(obfClass);
         }
         return index;
     }
 
-    private Map<String, Map<String, String>> buildStaticMemberIndex() {
+    private Map<String, Map<String, String>> buildStaticFieldIndex() {
         Map<String, Map<String, String>> index = new HashMap<>();
         JarMapping jarMapping = mappingData.getJarMapping();
 
-        // 索引字段：owner/name -> remappedName
         for (Map.Entry<String, String> entry : jarMapping.fields.entrySet()) {
             String key = entry.getKey();
             int slashIdx = key.lastIndexOf('/');
@@ -102,12 +112,17 @@ public class JavaRemapper {
                 if (spaceIdx > 0) {
                     name = name.substring(0, spaceIdx);
                 }
-                index.computeIfAbsent(owner, k -> new HashMap<>())
-                        .put(name, entry.getValue());
+                index.computeIfAbsent(owner, k -> new HashMap<>()).put(name, entry.getValue());
             }
         }
 
-        // 索引方法：owner/name -> remappedName，忽略描述符差异
+        return index;
+    }
+
+    private Map<String, Map<String, String>> buildStaticMethodIndex() {
+        Map<String, Map<String, String>> index = new HashMap<>();
+        JarMapping jarMapping = mappingData.getJarMapping();
+
         for (Map.Entry<String, String> entry : jarMapping.methods.entrySet()) {
             String key = entry.getKey();
             int spaceIdx = key.indexOf(' ');
@@ -122,7 +137,7 @@ public class JavaRemapper {
                     if (memberMap.containsKey(name)) {
                         String existing = memberMap.get(name);
                         if (existing != null && !existing.equals(remapped)) {
-                            // 同名方法映射到不同名称，标记为冲突
+                            // 同名方法不同重载映射到不同名称，标记为冲突
                             memberMap.put(name, null);
                         }
                     } else {
@@ -132,6 +147,70 @@ public class JavaRemapper {
             }
         }
 
+        return index;
+    }
+
+    private Map<String, String> buildPackageMappingIndex() {
+        Map<String, String> index = new HashMap<>();
+        JarMapping jarMapping = mappingData.getJarMapping();
+
+        // 从 packages 映射构建
+        for (Map.Entry<String, String> entry : jarMapping.packages.entrySet()) {
+            String obfPkg = entry.getKey();
+            String readablePkg = entry.getValue();
+            if (obfPkg.endsWith("/")) {
+                obfPkg = obfPkg.substring(0, obfPkg.length() - 1);
+            }
+            if (readablePkg.endsWith("/")) {
+                readablePkg = readablePkg.substring(0, readablePkg.length() - 1);
+            }
+            index.put(obfPkg, readablePkg);
+        }
+
+        // 从 classes 映射推断包名
+        for (Map.Entry<String, String> entry : jarMapping.classes.entrySet()) {
+            String obfClass = entry.getKey();
+            String readableClass = entry.getValue();
+            int obfLastSlash = obfClass.lastIndexOf('/');
+            int readableLastSlash = readableClass.lastIndexOf('/');
+            if (obfLastSlash > 0 && readableLastSlash > 0) {
+                String obfPkg = obfClass.substring(0, obfLastSlash);
+                String readablePkg = readableClass.substring(0, readableLastSlash);
+                index.putIfAbsent(obfPkg, readablePkg);
+            }
+        }
+
+        return index;
+    }
+
+    private Map<String, String> buildUniqueFieldMappings() {
+        Map<String, String> index = new HashMap<>();
+        Set<String> conflicts = new HashSet<>();
+        JarMapping jarMapping = mappingData.getJarMapping();
+
+        for (Map.Entry<String, String> entry : jarMapping.fields.entrySet()) {
+            String key = entry.getKey();
+            int slashIdx = key.lastIndexOf('/');
+            if (slashIdx > 0) {
+                String name = key.substring(slashIdx + 1);
+                int spaceIdx = name.indexOf(' ');
+                if (spaceIdx > 0) {
+                    name = name.substring(0, spaceIdx);
+                }
+                String remapped = entry.getValue();
+                if (conflicts.contains(name)) {
+                    continue;
+                }
+                if (index.containsKey(name)) {
+                    if (!index.get(name).equals(remapped)) {
+                        index.remove(name);
+                        conflicts.add(name);
+                    }
+                } else {
+                    index.put(name, remapped);
+                }
+            }
+        }
         return index;
     }
 
@@ -184,6 +263,7 @@ public class JavaRemapper {
 
         ParserConfiguration config = new ParserConfiguration();
         config.setSymbolResolver(new JavaSymbolSolver(typeSolver));
+        config.setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_17);
         JavaParser parser = new JavaParser(config);
 
         int processedCount = 0;
@@ -220,7 +300,9 @@ public class JavaRemapper {
         // 保持原有代码风格
         LexicalPreservingPrinter.setup(cu);
 
-        RemappingVisitor visitor = new RemappingVisitor(mappingData, simpleNameToObfClasses, staticMemberIndex);
+        RemappingVisitor visitor = new RemappingVisitor(
+                mappingData, simpleNameToObfClasses, staticFieldIndex, staticMethodIndex,
+                packageMappingIndex, uniqueFieldMappings);
         visitor.initImports(cu);
 
         cu.accept(visitor, null);
@@ -236,38 +318,9 @@ public class JavaRemapper {
         cu.getPackageDeclaration().ifPresent(pkg -> {
             String pkgName = pkg.getNameAsString();
             String internalPkg = pkgName.replace('.', '/');
-
-            JarMapping jarMapping = mappingData.getJarMapping();
-
-            for (Map.Entry<String, String> entry : jarMapping.packages.entrySet()) {
-                String obfPkg = entry.getKey();
-                String readablePkg = entry.getValue();
-                if (internalPkg.equals(obfPkg) || internalPkg.startsWith(obfPkg)) {
-                    String newPkg = internalPkg.replaceFirst(
-                            obfPkg.endsWith("/") ? obfPkg.substring(0, obfPkg.length() - 1) : obfPkg,
-                            readablePkg.endsWith("/") ? readablePkg.substring(0, readablePkg.length() - 1) : readablePkg
-                    );
-                    pkg.setName(newPkg.replace('/', '.'));
-                    return;
-                }
-            }
-
-            for (Map.Entry<String, String> entry : jarMapping.classes.entrySet()) {
-                String obfClass = entry.getKey();
-                String readableClass = entry.getValue();
-
-                int obfLastSlash = obfClass.lastIndexOf('/');
-                if (obfLastSlash > 0) {
-                    String obfPkg = obfClass.substring(0, obfLastSlash);
-                    if (internalPkg.equals(obfPkg)) {
-                        int readableLastSlash = readableClass.lastIndexOf('/');
-                        if (readableLastSlash > 0) {
-                            String newPkgInternal = readableClass.substring(0, readableLastSlash);
-                            pkg.setName(newPkgInternal.replace('/', '.'));
-                            return;
-                        }
-                    }
-                }
+            String remapped = packageMappingIndex.get(internalPkg);
+            if (remapped != null) {
+                pkg.setName(remapped.replace('/', '.'));
             }
         });
     }
@@ -313,7 +366,10 @@ public class JavaRemapper {
     private static class RemappingVisitor extends VoidVisitorAdapter<Void> {
         private final MappingData mappingData;
         private final Map<String, List<String>> simpleNameToObfClasses;
-        private final Map<String, Map<String, String>> staticMemberIndex;
+        private final Map<String, Map<String, String>> staticFieldIndex;
+        private final Map<String, Map<String, String>> staticMethodIndex;
+        private final Map<String, String> packageMappingIndex;
+        private final Map<String, String> uniqueFieldMappings;
         private final Map<String, String> simpleNameCache = new HashMap<>();
         private final Map<String, String> importedClasses = new HashMap<>();
         private final Set<String> importedPackages = new HashSet<>();
@@ -383,8 +439,8 @@ public class JavaRemapper {
                     }
                 } else {
                     // 普通星号 import
-                    String pkgName = n.getNameAsString();
-                    String remappedPkg = remapPackageName(pkgName.replace('.', '/'));
+                    String pkgName = n.getNameAsString().replace('.', '/');
+                    String remappedPkg = packageMappingIndex.get(pkgName);
                     if (remappedPkg != null) {
                         n.setName(remappedPkg.replace('/', '.'));
                     }
@@ -416,16 +472,6 @@ public class JavaRemapper {
         }
 
         @Override
-        public void visit(ClassOrInterfaceType n, Void arg) {
-            String simpleName = n.getNameAsString();
-            String remapped = remapSimpleName(simpleName, n);
-            if (remapped != null) {
-                n.setName(remapped);
-            }
-            super.visit(n, arg);
-        }
-
-        @Override
         public void visit(ClassOrInterfaceDeclaration n, Void arg) {
             log.debug("Visiting class: {}", n.getNameAsString());
             /*
@@ -441,6 +487,42 @@ public class JavaRemapper {
             if (remapped != null) {
                 n.setName(remapped);
             }
+        }
+
+        @Override
+        public void visit(EnumDeclaration n, Void arg) {
+            super.visit(n, arg);
+            String remapped = remapSimpleName(n.getNameAsString(), n);
+            if (remapped != null) {
+                n.setName(remapped);
+            }
+        }
+
+        @Override
+        public void visit(RecordDeclaration n, Void arg) {
+            super.visit(n, arg);
+            String remapped = remapSimpleName(n.getNameAsString(), n);
+            if (remapped != null) {
+                n.setName(remapped);
+            }
+        }
+
+        @Override
+        public void visit(AnnotationDeclaration n, Void arg) {
+            super.visit(n, arg);
+            String remapped = remapSimpleName(n.getNameAsString(), n);
+            if (remapped != null) {
+                n.setName(remapped);
+            }
+        }
+
+        @Override
+        public void visit(ClassOrInterfaceType n, Void arg) {
+            String remapped = remapSimpleName(n.getNameAsString(), n);
+            if (remapped != null) {
+                n.setName(remapped);
+            }
+            super.visit(n, arg);
         }
 
         @Override
@@ -484,6 +566,299 @@ public class JavaRemapper {
                 }
             }
             super.visit(n, arg);
+        }
+
+        @Override
+        public void visit(FieldAccessExpr n, Void arg) {
+            boolean remapped = false;
+            String fieldName = n.getNameAsString();
+
+            try {
+                ResolvedType scopeType = n.getScope().calculateResolvedType();
+                if (scopeType.isReferenceType()) {
+                    String ownerClass = toInternalName(scopeType.asReferenceType().getQualifiedName());
+                    String remappedField = tryGetFieldMapping(ownerClass, fieldName);
+                    if (remappedField != null) {
+                        n.setName(remappedField);
+                        remapped = true;
+                    }
+                }
+            } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
+                log.debug("Failed to resolve field access '{}': {}", n, e.getMessage());
+            }
+
+            // 回退：使用唯一字段名映射
+            if (!remapped) {
+                String fallbackRemapped = uniqueFieldMappings.get(fieldName);
+                if (fallbackRemapped != null) {
+                    n.setName(fallbackRemapped);
+                    log.debug("Field '{}' remapped to '{}' via fallback", fieldName, fallbackRemapped);
+                }
+            }
+
+            super.visit(n, arg);
+        }
+
+
+        @Override
+        public void visit(NameExpr n, Void arg) {
+            String name = n.getNameAsString();
+
+            // 1. 检查静态导入成员
+            String ownerClass = staticImportedMembers.get(name);
+            if (ownerClass != null) {
+                String remapped = remapStaticField(ownerClass, name);
+                if (!remapped.equals(name)) {
+                    n.setName(remapped);
+                }
+                super.visit(n, arg);
+                return;
+            }
+
+            // 2. 尝试使用 SymbolSolver 解析
+            try {
+                ResolvedValueDeclaration resolved = n.resolve();
+                if (resolved.isField()) {
+                    ResolvedFieldDeclaration field = resolved.asField();
+                    String declaringType = field.declaringType().getQualifiedName();
+                    String ownerInternal = toInternalName(declaringType);
+                    String remapped = tryGetFieldMapping(ownerInternal, name);
+                    if (remapped != null) {
+                        n.setName(remapped);
+                    }
+                }
+                super.visit(n, arg);
+                return;
+            } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
+                log.debug("Failed to resolve NameExpr '{}': {}", name, e.getMessage());
+            }
+
+            // 3. SymbolSolver 失败时的回退：检查是否被局部变量遮蔽
+            if (!isShadowedByLocalVariable(n, name)) {
+                String enclosingClass = getEnclosingClassName(n);
+                if (enclosingClass != null) {
+                    String remapped = tryGetFieldMapping(enclosingClass, name);
+                    if (remapped != null) {
+                        n.setName(remapped);
+                        super.visit(n, arg);
+                        return;
+                    }
+                }
+            }
+
+            // 4. 检查静态星号导入
+            String foundOwner = null;
+            String foundRemapped = null;
+            for (String asteriskClass : staticAsteriskClasses) {
+                String remapped = remapStaticField(asteriskClass, name);
+                if (!remapped.equals(name)) {
+                    if (foundOwner != null && !foundOwner.equals(asteriskClass)) {
+                        log.warn("Ambiguous static member '{}' found in multiple asterisk imports: {}, {}",
+                                name, foundOwner, asteriskClass);
+                        super.visit(n, arg);
+                        return;
+                    }
+                    foundOwner = asteriskClass;
+                    foundRemapped = remapped;
+                }
+            }
+
+            if (foundRemapped != null) {
+                n.setName(foundRemapped);
+            }
+
+            super.visit(n, arg);
+        }
+
+        @Override
+        public void visit(MethodDeclaration n, Void arg) {
+            String ownerClass = getEnclosingClassName(n);
+            if (ownerClass != null) {
+                tryRemapMethod(n, ownerClass, n.getNameAsString(), buildDescriptor(n));
+            }
+            super.visit(n, arg);
+        }
+
+        @Override
+        public void visit(MethodCallExpr n, Void arg) {
+            boolean remapped = false;
+
+            try {
+                ResolvedMethodDeclaration resolved = n.resolve();
+                String ownerClass = toInternalName(resolved.declaringType().getQualifiedName());
+                tryRemapMethod(n, ownerClass, n.getNameAsString(), buildDescriptor(resolved));
+                remapped = true;
+            } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
+                log.debug("Failed to resolve method call '{}': {}", n.getNameAsString(), e.getMessage());
+            }
+
+            if (!remapped && !n.getScope().isPresent()) {
+                String methodName = n.getNameAsString();
+
+                String ownerClass = staticImportedMembers.get(methodName);
+                if (ownerClass != null) {
+                    String remappedName = remapStaticMethod(ownerClass, methodName);
+                    if (!remappedName.equals(methodName)) {
+                        n.setName(remappedName);
+                    }
+                } else {
+                    for (String asteriskClass : staticAsteriskClasses) {
+                        String remappedName = remapStaticMethod(asteriskClass, methodName);
+                        if (!remappedName.equals(methodName)) {
+                            n.setName(remappedName);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            super.visit(n, arg);
+        }
+
+        @Override
+        public void visit(MethodReferenceExpr n, Void arg) {
+            String methodName = n.getIdentifier();
+
+            try {
+                String identifier = n.getIdentifier();
+                if ("new".equals(identifier)) {
+                    super.visit(n, arg);
+                    return;
+                }
+
+                Expression scope = n.getScope();
+                if (scope.isTypeExpr()) {
+                    ResolvedType type = scope.asTypeExpr().getType().resolve();
+                    if (type.isReferenceType()) {
+                        String ownerClass = toInternalName(type.asReferenceType().getQualifiedName());
+                        String remapped = remapStaticMethod(ownerClass, methodName);
+                        if (!remapped.equals(methodName)) {
+                            n.setIdentifier(remapped);
+                        }
+                    }
+                } else {
+                    ResolvedType scopeType = scope.calculateResolvedType();
+                    if (scopeType.isReferenceType()) {
+                        String ownerClass = toInternalName(scopeType.asReferenceType().getQualifiedName());
+                        String remapped = remapStaticMethod(ownerClass, methodName);
+                        if (!remapped.equals(methodName)) {
+                            n.setIdentifier(remapped);
+                        }
+                    }
+                }
+            } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
+                log.debug("Failed to resolve method reference '{}': {}", n, e.getMessage());
+            }
+
+            super.visit(n, arg);
+        }
+
+        @Override
+        public void visit(ConstructorDeclaration n, Void arg) {
+            remapConstructorName(n);
+            super.visit(n, arg);
+        }
+
+        @Override
+        public void visit(CompactConstructorDeclaration n, Void arg) {
+            remapConstructorName(n);
+            super.visit(n, arg);
+        }
+
+        private void remapConstructorName(NodeWithSimpleName<?> node) {
+            String ownerClass = getEnclosingClassName((Node) node);
+            if (ownerClass == null) return;
+            String remappedClass = mappingData.mapClass(ownerClass);
+            if (!remappedClass.equals(ownerClass)) {
+                int lastSeparator = Math.max(remappedClass.lastIndexOf('/'), remappedClass.lastIndexOf('$'));
+                String newName = lastSeparator >= 0 ? remappedClass.substring(lastSeparator + 1) : remappedClass;
+                node.setName(newName);
+            }
+        }
+
+        @Override
+        public void visit(MarkerAnnotationExpr n, Void arg) {
+            remapAnnotationName(n);
+            super.visit(n, arg);
+        }
+
+        @Override
+        public void visit(SingleMemberAnnotationExpr n, Void arg) {
+            remapAnnotationName(n);
+            super.visit(n, arg);
+        }
+
+        @Override
+        public void visit(NormalAnnotationExpr n, Void arg) {
+            remapAnnotationName(n);
+            super.visit(n, arg);
+        }
+
+        private void remapAnnotationName(AnnotationExpr n) {
+            String name = n.getNameAsString();
+            int lastDot = name.lastIndexOf('.');
+            String simpleName = lastDot >= 0 ? name.substring(lastDot + 1) : name;
+            String remapped = remapSimpleName(simpleName, n);
+            if (remapped != null) {
+                if (lastDot >= 0) {
+                    String prefix = name.substring(0, lastDot + 1);
+                    n.setName(prefix + remapped);
+                } else {
+                    n.setName(remapped);
+                }
+            }
+        }
+
+        @Override
+        public void visit(CastExpr n, Void arg) {
+            Type newType = remapAndCloneType(n.getType());
+            if (newType != null) {
+                n.setType(newType);
+            }
+            super.visit(n, arg);
+        }
+
+        @Override
+        public void visit(InstanceOfExpr n, Void arg) {
+            if (!n.getPattern().isPresent()) { // 如果有 pattern，类型会通过 TypePatternExpr 的 visit 处理，此处只处理无 pattern 情况
+                Type newType = remapAndCloneType(n.getType());
+                if (newType instanceof ReferenceType) {
+                    n.setType((ReferenceType) newType);
+                }
+            }
+            super.visit(n, arg);
+        }
+
+        @Override
+        public void visit(ArrayCreationExpr n, Void arg) {
+            Type newType = remapAndCloneType(n.getElementType());
+            if (newType != null) {
+                n.setElementType(newType);
+            }
+            super.visit(n, arg);
+        }
+
+        @Override
+        public void visit(TypePatternExpr n, Void arg) {
+            remapPatternType(n.getType());
+            super.visit(n, arg);
+        }
+
+        @Override
+        public void visit(RecordPatternExpr n, Void arg) {
+            remapPatternType(n.getType());
+            super.visit(n, arg);
+        }
+
+        private void remapPatternType(Type type) {
+            if (type instanceof ClassOrInterfaceType) {
+                ClassOrInterfaceType classType = (ClassOrInterfaceType) type;
+                String remapped = remapSimpleName(classType.getNameAsString(), classType);
+                if (remapped != null) {
+                    // 直接修改名称，避免替换整个节点导致 LexicalPreservingPrinter 问题
+                    classType.setName(remapped);
+                }
+            }
         }
 
         /**
@@ -548,6 +923,33 @@ public class JavaRemapper {
                     newArrayType.setComponentType(newComponentType);
                     return newArrayType;
                 }
+            } else if (type instanceof WildcardType) {
+                WildcardType wildcardType = (WildcardType) type;
+                boolean needsRemap = false;
+                Type newExtended = null;
+                Type newSuper = null;
+
+                if (wildcardType.getExtendedType().isPresent()) {
+                    newExtended = remapAndCloneType(wildcardType.getExtendedType().get());
+                    if (newExtended != null) needsRemap = true;
+                }
+                if (wildcardType.getSuperType().isPresent()) {
+                    newSuper = remapAndCloneType(wildcardType.getSuperType().get());
+                    if (newSuper != null) needsRemap = true;
+                }
+
+                if (needsRemap) {
+                    WildcardType newWildcard = new WildcardType();
+                    if (wildcardType.getExtendedType().isPresent()) {
+                        newWildcard.setExtendedType((ReferenceType) (newExtended != null ?
+                                newExtended : wildcardType.getExtendedType().get().clone()));
+                    }
+                    if (wildcardType.getSuperType().isPresent()) {
+                        newWildcard.setSuperType((ReferenceType) (newSuper != null ?
+                                newSuper : wildcardType.getSuperType().get().clone()));
+                    }
+                    return newWildcard;
+                }
             }
             return null;
         }
@@ -579,109 +981,23 @@ public class JavaRemapper {
                 }
             } else if (type instanceof ArrayType) {
                 return needsRemapType(((ArrayType) type).getComponentType());
+            } else if (type instanceof WildcardType) {
+                WildcardType wt = (WildcardType) type;
+                if (wt.getExtendedType().isPresent() && needsRemapType(wt.getExtendedType().get())) {
+                    return true;
+                }
+                return wt.getSuperType().isPresent() && needsRemapType(wt.getSuperType().get());
             }
             return false;
         }
 
-        @Override
-        public void visit(FieldAccessExpr n, Void arg) {
-            try {
-                ResolvedType scopeType = n.getScope().calculateResolvedType();
-                if (scopeType.isReferenceType()) {
-                    String ownerClass = scopeType.asReferenceType().getQualifiedName().replace('.', '/');
-                    tryRemapField(n, ownerClass, n.getNameAsString());
-                }
-            } catch (Exception e) {
-                log.debug("Failed to resolve field access '{}': {}", n, e.getMessage());
-            }
-            super.visit(n, arg);
-        }
-
-        @Override
-        public void visit(NameExpr n, Void arg) {
-            String name = n.getNameAsString();
-
-            String ownerClass = staticImportedMembers.get(name);
-            if (ownerClass != null) {
-                String remapped = remapStaticMember(ownerClass, name);
-                if (!remapped.equals(name)) {
-                    n.setName(remapped);
-                }
-                super.visit(n, arg);
-                return;
-            }
-
-            String foundOwner = null;
-            String foundRemapped = null;
-            for (String asteriskClass : staticAsteriskClasses) {
-                String remapped = remapStaticMember(asteriskClass, name);
-                if (!remapped.equals(name)) {
-                    if (foundOwner != null && !foundOwner.equals(asteriskClass)) {
-                        log.warn("Ambiguous static member '{}' found in multiple asterisk imports: {}, {}",
-                                name, foundOwner, asteriskClass);
-                        super.visit(n, arg);
-                        return;
-                    }
-                    foundOwner = asteriskClass;
-                    foundRemapped = remapped;
-                }
-            }
-
-            if (foundRemapped != null) {
-                n.setName(foundRemapped);
-            }
-
-            super.visit(n, arg);
-        }
-
-        @Override
-        public void visit(MethodCallExpr n, Void arg) {
-            boolean remapped = false;
-
-            try {
-                ResolvedMethodDeclaration resolved = n.resolve();
-                String ownerClass = resolved.declaringType().getQualifiedName().replace('.', '/');
-                tryRemapMethod(n, ownerClass, n.getNameAsString(), buildDescriptor(resolved));
-                remapped = true;
-            } catch (Exception e) {
-                log.debug("Failed to resolve method call '{}': {}", n.getNameAsString(), e.getMessage());
-            }
-
-            if (!remapped && !n.getScope().isPresent()) {
-                String methodName = n.getNameAsString();
-
-                String ownerClass = staticImportedMembers.get(methodName);
-                if (ownerClass != null) {
-                    String remappedName = remapStaticMember(ownerClass, methodName);
-                    if (!remappedName.equals(methodName)) {
-                        n.setName(remappedName);
-                    }
-                } else {
-                    for (String asteriskClass : staticAsteriskClasses) {
-                        String remappedName = remapStaticMember(asteriskClass, methodName);
-                        if (!remappedName.equals(methodName)) {
-                            n.setName(remappedName);
-                            break;
-                        }
-                    }
-                }
-            }
-
-            super.visit(n, arg);
-        }
-
-        @Override
-        public void visit(MethodDeclaration n, Void arg) {
-            String ownerClass = getEnclosingClassName(n);
-            if (ownerClass != null) {
-                tryRemapMethod(n, ownerClass, n.getNameAsString(), buildDescriptor(n));
-            }
-            super.visit(n, arg);
+        private String tryGetFieldMapping(String ownerClass, String fieldName) {
+            String key = ownerClass + "/" + fieldName;
+            return getJarMapping().fields.get(key);
         }
 
         private void tryRemapField(NodeWithSimpleName<?> node, String ownerClass, String fieldName) {
-            String key = ownerClass + "/" + fieldName;
-            String remapped = getJarMapping().fields.get(key);
+            String remapped = tryGetFieldMapping(ownerClass, fieldName);
             if (remapped != null) {
                 node.setName(remapped);
             }
@@ -695,6 +1011,116 @@ public class JavaRemapper {
             }
         }
 
+        private boolean isShadowedByLocalVariable(Node node, String name) {
+            Node current = node.getParentNode().orElse(null);
+
+            while (current != null) {
+                if (current instanceof MethodDeclaration) {
+                    MethodDeclaration method = (MethodDeclaration) current;
+                    for (Parameter param : method.getParameters()) {
+                        if (param.getNameAsString().equals(name)) {
+                            return true;
+                        }
+                    }
+                    break;
+                }
+                if (current instanceof ConstructorDeclaration) {
+                    ConstructorDeclaration ctor = (ConstructorDeclaration) current;
+                    for (Parameter param : ctor.getParameters()) {
+                        if (param.getNameAsString().equals(name)) {
+                            return true;
+                        }
+                    }
+                    break;
+                }
+                if (current instanceof LambdaExpr) {
+                    LambdaExpr lambda = (LambdaExpr) current;
+                    for (Parameter param : lambda.getParameters()) {
+                        if (param.getNameAsString().equals(name)) {
+                            return true;
+                        }
+                    }
+                }
+
+                // 检查局部变量在当前节点之前的声明
+                if (current instanceof BlockStmt) {
+                    BlockStmt block = (BlockStmt) current;
+                    for (Statement stmt : block.getStatements()) {
+                        if (containsNode(stmt, node)) {
+                            break;
+                        }
+                        if (stmt instanceof ExpressionStmt) {
+                            Expression expr = ((ExpressionStmt) stmt).getExpression();
+                            if (expr instanceof VariableDeclarationExpr) {
+                                for (VariableDeclarator var : ((VariableDeclarationExpr) expr).getVariables()) {
+                                    if (var.getNameAsString().equals(name)) {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (current instanceof ForStmt) {
+                    ForStmt forStmt = (ForStmt) current;
+                    for (Expression init : forStmt.getInitialization()) {
+                        if (init instanceof VariableDeclarationExpr) {
+                            for (VariableDeclarator var : ((VariableDeclarationExpr) init).getVariables()) {
+                                if (var.getNameAsString().equals(name)) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (current instanceof ForEachStmt) {
+                    ForEachStmt forEach = (ForEachStmt) current;
+                    if (forEach.getVariable().getVariables().stream()
+                            .anyMatch(v -> v.getNameAsString().equals(name))) {
+                        return true;
+                    }
+                }
+
+                if (current instanceof CatchClause) {
+                    CatchClause catchClause = (CatchClause) current;
+                    if (catchClause.getParameter().getNameAsString().equals(name)) {
+                        return true;
+                    }
+                }
+
+                if (current instanceof TryStmt) {
+                    TryStmt tryStmt = (TryStmt) current;
+                    for (Expression res : tryStmt.getResources()) {
+                        if (res instanceof VariableDeclarationExpr) {
+                            for (VariableDeclarator var : ((VariableDeclarationExpr) res).getVariables()) {
+                                if (var.getNameAsString().equals(name)) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                current = current.getParentNode().orElse(null);
+            }
+
+            return false;
+        }
+
+        private boolean containsNode(Node parent, Node target) {
+            if (parent == target) {
+                return true;
+            }
+            for (Node child : parent.getChildNodes()) {
+                if (containsNode(child, target)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         /**
          * 根据简单名查找映射
          * 优先使用 SymbolSolver 解析完整类名，回退到简单名匹配
@@ -706,16 +1132,16 @@ public class JavaRemapper {
                     ClassOrInterfaceType type = (ClassOrInterfaceType) context;
                     ResolvedType resolved = type.resolve();
                     if (resolved.isReferenceType()) {
-                        String fullName = resolved.asReferenceType().getQualifiedName().replace('.', '/');
+                        String fullName = toInternalName(resolved.asReferenceType().getQualifiedName());
                         String mapped = mappingData.mapClass(fullName);
                         if (!mapped.equals(fullName)) {
-                            int lastSlash = mapped.lastIndexOf('/');
-                            return lastSlash >= 0 ? mapped.substring(lastSlash + 1) : mapped;
+                            int lastSeparator = Math.max(mapped.lastIndexOf('/'), mapped.lastIndexOf('$'));
+                            return lastSeparator >= 0 ? mapped.substring(lastSeparator + 1) : mapped;
                         }
                         return null;
                     }
                 }
-            } catch (Exception e) {
+            } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
                 log.debug("Failed to resolve type '{}', falling back to simple name matching: {}",
                         simpleName, e.getMessage());
             }
@@ -787,64 +1213,76 @@ public class JavaRemapper {
         private String getRemappedSimpleName(String obfClass) {
             String readableClass = getJarMapping().classes.get(obfClass);
             if (readableClass == null) return null;
-            int lastSlash = readableClass.lastIndexOf('/');
-            return lastSlash >= 0 ? readableClass.substring(lastSlash + 1) : readableClass;
-        }
-
-        private String remapPackageName(String internalPkg) {
-            JarMapping jarMapping = getJarMapping();
-
-            String pkgWithSlash = internalPkg.endsWith("/") ? internalPkg : internalPkg + "/";
-            String remapped = jarMapping.packages.get(pkgWithSlash);
-            if (remapped != null) {
-                return remapped.endsWith("/") ? remapped.substring(0, remapped.length() - 1) : remapped;
-            }
-
-            for (Map.Entry<String, String> entry : jarMapping.classes.entrySet()) {
-                String obfClass = entry.getKey();
-                String readableClass = entry.getValue();
-                int obfLastSlash = obfClass.lastIndexOf('/');
-                if (obfLastSlash > 0) {
-                    String obfPkg = obfClass.substring(0, obfLastSlash);
-                    if (obfPkg.equals(internalPkg)) {
-                        int readableLastSlash = readableClass.lastIndexOf('/');
-                        if (readableLastSlash > 0) {
-                            return readableClass.substring(0, readableLastSlash);
-                        }
-                    }
-                }
-            }
-
-            return null;
+            int lastSeparator = Math.max(readableClass.lastIndexOf('/'), readableClass.lastIndexOf('$'));
+            return lastSeparator >= 0 ? readableClass.substring(lastSeparator + 1) : readableClass;
         }
 
         private String remapStaticMember(String ownerClass, String memberName) {
-            Map<String, String> memberMap = staticMemberIndex.get(ownerClass);
+            String fieldRemapped = remapStaticField(ownerClass, memberName);
+            if (!fieldRemapped.equals(memberName)) {
+                return fieldRemapped;
+            }
+            return remapStaticMethod(ownerClass, memberName);
+        }
+
+        private String remapStaticField(String ownerClass, String fieldName) {
+            Map<String, String> memberMap = staticFieldIndex.get(ownerClass);
             if (memberMap == null) {
-                return memberName;
+                return fieldName;
             }
+            String remapped = memberMap.get(fieldName);
+            return remapped != null ? remapped : fieldName;
+        }
 
-            String remapped = memberMap.get(memberName);
-            if (remapped == null && memberMap.containsKey(memberName)) {
+        private String remapStaticMethod(String ownerClass, String methodName) {
+            Map<String, String> memberMap = staticMethodIndex.get(ownerClass);
+            if (memberMap == null) {
+                return methodName;
+            }
+            String remapped = memberMap.get(methodName);
+            if (remapped == null && memberMap.containsKey(methodName)) {
                 // 值为 null 但 key 存在，表示有冲突
-                log.warn("Ambiguous static member import: {}.{} maps to multiple names",
-                        ownerClass.replace('/', '.'), memberName);
-                return memberName;
+                log.warn("Ambiguous static method import: {}.{} maps to multiple names",
+                        ownerClass.replace('/', '.'), methodName);
+                return methodName;
             }
+            return remapped != null ? remapped : methodName;
+        }
 
-            return remapped != null ? remapped : memberName;
+        /**
+         * 将 Java 完全限定名转换为 JVM 内部名
+         * 例如 com.example.Outer.Inner -> com/example/Outer$Inner
+         */
+        private String toInternalName(String qualifiedName) {
+            StringBuilder sb = new StringBuilder();
+            String[] parts = qualifiedName.split("\\.");
+            boolean inClass = false;
+            for (int i = 0; i < parts.length; i++) {
+                if (i > 0) {
+                    sb.append(inClass ? '$' : '/');
+                }
+                String part = parts[i];
+                // 简单启发式判断，首字母大写认为是类名
+                if (!inClass && !part.isEmpty() && Character.isUpperCase(part.charAt(0))) {
+                    inClass = true;
+                }
+                sb.append(part);
+            }
+            return sb.toString();
         }
 
         private String getEnclosingClassName(Node node) {
             Node current = node;
             while (current != null) {
-                if (current instanceof ClassOrInterfaceDeclaration) {
+                if (current instanceof ClassOrInterfaceDeclaration
+                        || current instanceof EnumDeclaration
+                        || current instanceof RecordDeclaration
+                        || current instanceof AnnotationDeclaration) {
                     try {
-                        ResolvedReferenceTypeDeclaration resolved = ((ClassOrInterfaceDeclaration) current).resolve();
-                        return resolved.getQualifiedName().replace('.', '/');
-                    } catch (Exception e) {
-                        log.debug("Failed to resolve enclosing class '{}': {}",
-                                ((ClassOrInterfaceDeclaration) current).getNameAsString(), e.getMessage());
+                        ResolvedReferenceTypeDeclaration resolved = ((TypeDeclaration<?>) current).resolve();
+                        return toInternalName(resolved.getQualifiedName());
+                    } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
+                        log.debug("Failed to resolve enclosing class: {}", e.getMessage());
                         return null;
                     }
                 }
@@ -868,7 +1306,7 @@ public class JavaRemapper {
             for (Parameter param : method.getParameters()) {
                 try {
                     sb.append(toDescriptor(param.getType().resolve()));
-                } catch (Exception e) {
+                } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
                     log.debug("Failed to resolve parameter type '{}', using Object: {}",
                             param.getType(), e.getMessage());
                     sb.append("Ljava/lang/Object;");
@@ -877,7 +1315,7 @@ public class JavaRemapper {
             sb.append(")");
             try {
                 sb.append(toDescriptor(method.getType().resolve()));
-            } catch (Exception e) {
+            } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
                 log.debug("Failed to resolve return type '{}', using void: {}",
                         method.getType(), e.getMessage());
                 sb.append("V");
@@ -912,7 +1350,7 @@ public class JavaRemapper {
             } else if (type.isArray()) {
                 return "[" + toDescriptor(type.asArrayType().getComponentType());
             } else if (type.isReferenceType()) {
-                String name = type.asReferenceType().getQualifiedName().replace('.', '/');
+                String name = toInternalName(type.asReferenceType().getQualifiedName());
                 return "L" + name + ";";
             }
             return "Ljava/lang/Object;";

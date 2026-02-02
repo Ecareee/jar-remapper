@@ -47,12 +47,25 @@ public class JavaRemapperTest {
                       - obfuscated: b
                         readable: getHelper
                         descriptor: ()La/c;
+                      - obfuscated: c
+                        readable: process
+                        descriptor: (La/c;)V
                   - obfuscated: a/c
                     readable: com/example/Helper
                     fields:
                       - obfuscated: x
                         readable: data
                         type: I
+                    methods:
+                      - obfuscated: y
+                        readable: doWork
+                        descriptor: ()V
+                  - obfuscated: a/d
+                    readable: com/example/Status
+                  - obfuscated: a/e
+                    readable: com/example/DataRecord
+                  - obfuscated: a/f
+                    readable: com/example/Marker
                 """;
 
         File yamlFile = tempDir.resolve("mappings.yaml").toFile();
@@ -83,7 +96,7 @@ public class JavaRemapperTest {
                         return d;
                     }
                 
-                    public void process(c helper) {
+                    public void c(c helper) {
                         this.d = helper;
                     }
                 
@@ -100,6 +113,8 @@ public class JavaRemapperTest {
                 
                 public class c {
                     public int x;
+                
+                    public void y() {}
                 }
                 """;
         Files.writeString(new File(packageDir, "c.java").toPath(), classC);
@@ -451,6 +466,715 @@ public class JavaRemapperTest {
 
         File outputFile = new File(outputDir, "a/b.java");
         assertTrue(outputFile.exists(), "Commented file should keep original path");
+    }
+
+    @Test
+    public void testRemapEnumDeclaration() throws IOException {
+        File inputDir = tempDir.resolve("test-enum-input").toFile();
+        File outputDir = tempDir.resolve("test-enum-output").toFile();
+
+        File packageDir = new File(inputDir, "a");
+        FileUtils.ensureDirectory(packageDir);
+
+        String enumD = """
+                package a;
+                
+                public enum d {
+                    ACTIVE,
+                    INACTIVE,
+                    PENDING;
+                
+                    public boolean isActive() {
+                        return this == ACTIVE;
+                    }
+                }
+                """;
+        Files.writeString(new File(packageDir, "d.java").toPath(), enumD);
+
+        String classB = """
+                package a;
+                
+                public class b {
+                    private d status;
+                
+                    public d getStatus() {
+                        return status;
+                    }
+                
+                    public void setStatus(d s) {
+                        this.status = s;
+                    }
+                }
+                """;
+        Files.writeString(new File(packageDir, "b.java").toPath(), classB);
+
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        remapper.remapJavaSource(inputDir, outputDir);
+
+        File enumFile = findJavaFile(outputDir, "Status.java");
+        assertNotNull(enumFile, "Status.java should exist");
+
+        String enumContent = Files.readString(enumFile.toPath());
+        log.info("Enum test:\n{}", enumContent);
+
+        assertTrue(enumContent.contains("public enum Status"),
+                "Enum name 'd' should be remapped to 'Status'");
+
+        File classFile = findJavaFile(outputDir, "TestClass.java");
+        assertNotNull(classFile, "TestClass.java should exist");
+
+        String classContent = Files.readString(classFile.toPath());
+        log.info("Class using enum:\n{}", classContent);
+
+        assertTrue(classContent.contains("private Status status"),
+                "Enum field type should be remapped");
+        assertTrue(classContent.contains("public Status getStatus()"),
+                "Enum return type should be remapped");
+        assertTrue(classContent.contains("setStatus(Status"),
+                "Enum parameter type should be remapped");
+    }
+
+    @Test
+    public void testRemapRecordDeclaration() throws IOException {
+        File inputDir = tempDir.resolve("test-record-input").toFile();
+        File outputDir = tempDir.resolve("test-record-output").toFile();
+
+        File packageDir = new File(inputDir, "a");
+        FileUtils.ensureDirectory(packageDir);
+
+        String recordE = """
+                package a;
+                
+                public record e(String name, int value) {
+                    public e {
+                        if (value < 0) {
+                            throw new IllegalArgumentException("value must be non-negative");
+                        }
+                    }
+                
+                    public String upperName() {
+                        return name.toUpperCase();
+                    }
+                }
+                """;
+        Files.writeString(new File(packageDir, "e.java").toPath(), recordE);
+
+        String classB = """
+                package a;
+                
+                public class b {
+                    private e data;
+                
+                    public e getData() {
+                        return data;
+                    }
+                
+                    public void setData(e d) {
+                        this.data = d;
+                    }
+                }
+                """;
+        Files.writeString(new File(packageDir, "b.java").toPath(), classB);
+
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        remapper.remapJavaSource(inputDir, outputDir);
+
+        File recordFile = findJavaFile(outputDir, "DataRecord.java");
+        assertNotNull(recordFile, "DataRecord.java should exist");
+
+        String recordContent = Files.readString(recordFile.toPath());
+        log.info("Record test:\n{}", recordContent);
+
+        assertTrue(recordContent.contains("public record DataRecord"),
+                "Record name 'e' should be remapped to 'DataRecord'");
+        assertTrue(recordContent.contains("public DataRecord {"),
+                "Compact constructor should be remapped");
+
+        File classFile = findJavaFile(outputDir, "TestClass.java");
+        assertNotNull(classFile, "TestClass.java should exist");
+
+        String classContent = Files.readString(classFile.toPath());
+
+        assertTrue(classContent.contains("private DataRecord data"),
+                "Record field type should be remapped");
+        assertTrue(classContent.contains("public DataRecord getData()"),
+                "Record return type should be remapped");
+    }
+
+    @Test
+    public void testRemapAnnotationDeclaration() throws IOException {
+        File inputDir = tempDir.resolve("test-annotation-input").toFile();
+        File outputDir = tempDir.resolve("test-annotation-output").toFile();
+
+        File packageDir = new File(inputDir, "a");
+        FileUtils.ensureDirectory(packageDir);
+
+        String annotationF = """
+                package a;
+                
+                import java.lang.annotation.ElementType;
+                import java.lang.annotation.Retention;
+                import java.lang.annotation.RetentionPolicy;
+                import java.lang.annotation.Target;
+                
+                @Retention(RetentionPolicy.RUNTIME)
+                @Target(ElementType.TYPE)
+                public @interface f {
+                    String value() default "";
+                }
+                """;
+        Files.writeString(new File(packageDir, "f.java").toPath(), annotationF);
+
+        String classB = """
+                package a;
+                
+                @f("test")
+                public class b {
+                    private int a;
+                }
+                """;
+        Files.writeString(new File(packageDir, "b.java").toPath(), classB);
+
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        remapper.remapJavaSource(inputDir, outputDir);
+
+        File annotationFile = findJavaFile(outputDir, "Marker.java");
+        assertNotNull(annotationFile, "Marker.java should exist");
+
+        String annotationContent = Files.readString(annotationFile.toPath());
+        log.info("Annotation test:\n{}", annotationContent);
+
+        assertTrue(annotationContent.contains("public @interface Marker"),
+                "Annotation name 'f' should be remapped to 'Marker'");
+
+        File classFile = findJavaFile(outputDir, "TestClass.java");
+        assertNotNull(classFile, "TestClass.java should exist");
+
+        String classContent = Files.readString(classFile.toPath());
+        log.info("Class with annotation:\n{}", classContent);
+
+        assertTrue(classContent.contains("@Marker("),
+                "Annotation usage should be remapped");
+    }
+
+    @Test
+    public void testRemapMethodReference() throws IOException {
+        File inputDir = tempDir.resolve("test-methodref-input").toFile();
+        File outputDir = tempDir.resolve("test-methodref-output").toFile();
+
+        File packageDir = new File(inputDir, "a");
+        FileUtils.ensureDirectory(packageDir);
+
+        String classC = """
+                package a;
+                
+                public class c {
+                    public int x;
+                
+                    public void y() {}
+                
+                    public static void staticMethod() {}
+                }
+                """;
+        Files.writeString(new File(packageDir, "c.java").toPath(), classC);
+
+        String classB = """
+                package a;
+                
+                import java.util.List;
+                import java.util.ArrayList;
+                
+                public class b {
+                    public void testMethodRef() {
+                        List<c> list = new ArrayList<>();
+                        // 实例方法引用
+                        list.forEach(c::y);
+                        // 静态方法引用
+                        Runnable r = c::staticMethod;
+                    }
+                }
+                """;
+        Files.writeString(new File(packageDir, "b.java").toPath(), classB);
+
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        remapper.remapJavaSource(inputDir, outputDir);
+
+        File classFile = findJavaFile(outputDir, "TestClass.java");
+        assertNotNull(classFile, "TestClass.java should exist");
+
+        String content = Files.readString(classFile.toPath());
+        log.info("Method reference test:\n{}", content);
+
+        assertTrue(content.contains("List<Helper>"),
+                "Generic type should be remapped");
+        assertTrue(content.contains("Helper::doWork"),
+                "Method reference should be remapped");
+    }
+
+    @Test
+    public void testRemapConstructorDeclaration() throws IOException {
+        File inputDir = tempDir.resolve("test-constructor-input").toFile();
+        File outputDir = tempDir.resolve("test-constructor-output").toFile();
+
+        File packageDir = new File(inputDir, "a");
+        FileUtils.ensureDirectory(packageDir);
+
+        String classB = """
+                package a;
+                
+                public class b {
+                    private int a;
+                    private c d;
+                
+                    public b() {
+                        this.a = 0;
+                    }
+                
+                    public b(int value) {
+                        this.a = value;
+                    }
+                
+                    public b(int value, c helper) {
+                        this.a = value;
+                        this.d = helper;
+                    }
+                }
+                """;
+        Files.writeString(new File(packageDir, "b.java").toPath(), classB);
+
+        String classC = """
+                package a;
+                public class c {
+                    public int x;
+                }
+                """;
+        Files.writeString(new File(packageDir, "c.java").toPath(), classC);
+
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        remapper.remapJavaSource(inputDir, outputDir);
+
+        File classFile = findJavaFile(outputDir, "TestClass.java");
+        assertNotNull(classFile, "TestClass.java should exist");
+
+        String content = Files.readString(classFile.toPath());
+        log.info("Constructor test:\n{}", content);
+
+        assertTrue(content.contains("public TestClass()"),
+                "No-arg constructor should be remapped");
+        assertTrue(content.contains("public TestClass(int value)"),
+                "Single-arg constructor should be remapped");
+        assertTrue(content.contains("public TestClass(int value, Helper helper)"),
+                "Multi-arg constructor should be remapped");
+    }
+
+    @Test
+    public void testRemapCastExpression() throws IOException {
+        File inputDir = tempDir.resolve("test-cast-input").toFile();
+        File outputDir = tempDir.resolve("test-cast-output").toFile();
+
+        File packageDir = new File(inputDir, "a");
+        FileUtils.ensureDirectory(packageDir);
+
+        String classC = """
+                package a;
+                public class c {
+                    public int x;
+                }
+                """;
+        Files.writeString(new File(packageDir, "c.java").toPath(), classC);
+
+        String classB = """
+                package a;
+                
+                public class b {
+                    public void testCast(Object obj) {
+                        c helper = (c) obj;
+                        helper.x = 10;
+                    }
+                
+                    public c castAndReturn(Object obj) {
+                        return (c) obj;
+                    }
+                }
+                """;
+        Files.writeString(new File(packageDir, "b.java").toPath(), classB);
+
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        remapper.remapJavaSource(inputDir, outputDir);
+
+        File classFile = findJavaFile(outputDir, "TestClass.java");
+        assertNotNull(classFile, "TestClass.java should exist");
+
+        String content = Files.readString(classFile.toPath());
+        log.info("Cast expression test:\n{}", content);
+
+        assertTrue(content.contains("(Helper) obj"),
+                "Cast expression type should be remapped");
+        assertTrue(content.contains("Helper helper = (Helper)"),
+                "Variable type and cast should both be remapped");
+    }
+
+    @Test
+    public void testRemapInstanceOfExpression() throws IOException {
+        File inputDir = tempDir.resolve("test-instanceof-input").toFile();
+        File outputDir = tempDir.resolve("test-instanceof-output").toFile();
+
+        File packageDir = new File(inputDir, "a");
+        FileUtils.ensureDirectory(packageDir);
+
+        String classC = """
+                package a;
+                public class c {
+                    public int x;
+                }
+                """;
+        Files.writeString(new File(packageDir, "c.java").toPath(), classC);
+
+        String classB = """
+                package a;
+                
+                public class b {
+                    public boolean isHelper(Object obj) {
+                        return obj instanceof c;
+                    }
+                
+                    public void processIfHelper(Object obj) {
+                        if (obj instanceof c) {
+                            c helper = (c) obj;
+                            helper.x = 10;
+                        }
+                    }
+                }
+                """;
+        Files.writeString(new File(packageDir, "b.java").toPath(), classB);
+
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        remapper.remapJavaSource(inputDir, outputDir);
+
+        File classFile = findJavaFile(outputDir, "TestClass.java");
+        assertNotNull(classFile, "TestClass.java should exist");
+
+        String content = Files.readString(classFile.toPath());
+        log.info("InstanceOf expression test:\n{}", content);
+
+        assertTrue(content.contains("obj instanceof Helper"),
+                "InstanceOf type should be remapped");
+    }
+
+    @Test
+    public void testRemapPatternMatching() throws IOException {
+        File inputDir = tempDir.resolve("test-pattern-input").toFile();
+        File outputDir = tempDir.resolve("test-pattern-output").toFile();
+
+        File packageDir = new File(inputDir, "a");
+        FileUtils.ensureDirectory(packageDir);
+
+        String classC = """
+                package a;
+                public class c {
+                    public int x;
+                }
+                """;
+        Files.writeString(new File(packageDir, "c.java").toPath(), classC);
+
+        String classB = """
+                package a;
+                
+                public class b {
+                    public void processWithPattern(Object obj) {
+                        if (obj instanceof c helper) {
+                            helper.x = 10;
+                        }
+                    }
+                
+                    public int getValueOrZero(Object obj) {
+                        if (obj instanceof c h) {
+                            return h.x;
+                        }
+                        return 0;
+                    }
+                }
+                """;
+        Files.writeString(new File(packageDir, "b.java").toPath(), classB);
+
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        remapper.remapJavaSource(inputDir, outputDir);
+
+        File classFile = findJavaFile(outputDir, "TestClass.java");
+        assertNotNull(classFile, "TestClass.java should exist");
+
+        String content = Files.readString(classFile.toPath());
+        log.info("Pattern matching test:\n{}", content);
+
+        assertTrue(content.contains("instanceof Helper helper"),
+                "Pattern matching type should be remapped");
+        assertTrue(content.contains("instanceof Helper h"),
+                "Pattern matching with short variable should be remapped");
+    }
+
+    @Test
+    public void testRemapArrayCreation() throws IOException {
+        File inputDir = tempDir.resolve("test-arraycreation-input").toFile();
+        File outputDir = tempDir.resolve("test-arraycreation-output").toFile();
+
+        File packageDir = new File(inputDir, "a");
+        FileUtils.ensureDirectory(packageDir);
+
+        String classC = """
+                package a;
+                public class c {
+                    public int x;
+                }
+                """;
+        Files.writeString(new File(packageDir, "c.java").toPath(), classC);
+
+        String classB = """
+                package a;
+                
+                public class b {
+                    public c[] createArray() {
+                        return new c[10];
+                    }
+                
+                    public c[][] createMatrix() {
+                        return new c[5][5];
+                    }
+                
+                    public c[] createWithInit() {
+                        return new c[] { new c(), new c() };
+                    }
+                }
+                """;
+        Files.writeString(new File(packageDir, "b.java").toPath(), classB);
+
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        remapper.remapJavaSource(inputDir, outputDir);
+
+        File classFile = findJavaFile(outputDir, "TestClass.java");
+        assertNotNull(classFile, "TestClass.java should exist");
+
+        String content = Files.readString(classFile.toPath());
+        log.info("Array creation test:\n{}", content);
+
+        assertTrue(content.contains("new Helper[10]"),
+                "Array creation type should be remapped");
+        assertTrue(content.contains("new Helper[5][5]"),
+                "2D array creation type should be remapped");
+        assertTrue(content.contains("new Helper[]"),
+                "Array creation with initializer should be remapped");
+    }
+
+    @Test
+    public void testRemapWildcardTypes() throws IOException {
+        File inputDir = tempDir.resolve("test-wildcard-input").toFile();
+        File outputDir = tempDir.resolve("test-wildcard-output").toFile();
+
+        File packageDir = new File(inputDir, "a");
+        FileUtils.ensureDirectory(packageDir);
+
+        String classC = """
+                package a;
+                public class c {
+                    public int x;
+                }
+                """;
+        Files.writeString(new File(packageDir, "c.java").toPath(), classC);
+
+        String classB = """
+                package a;
+                
+                import java.util.List;
+                
+                public class b {
+                    private List<? extends c> extendsHelper;
+                    private List<? super c> superHelper;
+                
+                    public void setExtendsHelper(List<? extends c> list) {
+                        this.extendsHelper = list;
+                    }
+                
+                    public List<? extends c> getExtendsHelper() {
+                        return extendsHelper;
+                    }
+                
+                    public void setSuperHelper(List<? super c> list) {
+                        this.superHelper = list;
+                    }
+                }
+                """;
+        Files.writeString(new File(packageDir, "b.java").toPath(), classB);
+
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        remapper.remapJavaSource(inputDir, outputDir);
+
+        File classFile = findJavaFile(outputDir, "TestClass.java");
+        assertNotNull(classFile, "TestClass.java should exist");
+
+        String content = Files.readString(classFile.toPath());
+        log.info("Wildcard types test:\n{}", content);
+
+        assertTrue(content.contains("List<? extends Helper>"),
+                "Wildcard extends type should be remapped");
+        assertTrue(content.contains("List<? super Helper>"),
+                "Wildcard super type should be remapped");
+    }
+
+    @Test
+    public void testRemapAnnotationUsage() throws IOException {
+        File inputDir = tempDir.resolve("test-annotation-usage-input").toFile();
+        File outputDir = tempDir.resolve("test-annotation-usage-output").toFile();
+
+        File packageDir = new File(inputDir, "a");
+        FileUtils.ensureDirectory(packageDir);
+
+        String annotationF = """
+                package a;
+                
+                import java.lang.annotation.ElementType;
+                import java.lang.annotation.Retention;
+                import java.lang.annotation.RetentionPolicy;
+                import java.lang.annotation.Target;
+                
+                @Retention(RetentionPolicy.RUNTIME)
+                @Target({ElementType.TYPE, ElementType.METHOD, ElementType.FIELD})
+                public @interface f {
+                    String value() default "";
+                    int count() default 0;
+                }
+                """;
+        Files.writeString(new File(packageDir, "f.java").toPath(), annotationF);
+
+        String classB = """
+                package a;
+                
+                @f
+                public class b {
+                    @f("field")
+                    private int a;
+                
+                    @f(value = "method", count = 5)
+                    public int a() {
+                        return this.a;
+                    }
+                }
+                """;
+        Files.writeString(new File(packageDir, "b.java").toPath(), classB);
+
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        remapper.remapJavaSource(inputDir, outputDir);
+
+        File classFile = findJavaFile(outputDir, "TestClass.java");
+        assertNotNull(classFile, "TestClass.java should exist");
+
+        String content = Files.readString(classFile.toPath());
+        log.info("Annotation usage test:\n{}", content);
+
+        // MarkerAnnotationExpr
+        assertTrue(content.contains("@Marker\npublic class") || content.contains("@Marker\r\npublic class"),
+                "Marker annotation should be remapped");
+
+        // SingleMemberAnnotationExpr
+        assertTrue(content.contains("@Marker(\"field\")"),
+                "Single member annotation should be remapped");
+
+        // NormalAnnotationExpr
+        assertTrue(content.contains("@Marker(value = \"method\""),
+                "Normal annotation should be remapped");
+    }
+
+    @Test
+    public void testRemapStaticImportWithMethodReference() throws IOException {
+        File inputDir = tempDir.resolve("test-static-methodref-input").toFile();
+        File outputDir = tempDir.resolve("test-static-methodref-output").toFile();
+
+        File packageDir = new File(inputDir, "a");
+        FileUtils.ensureDirectory(packageDir);
+
+        String classC = """
+                package a;
+                
+                public class c {
+                    public int x;
+                
+                    public void y() {}
+                
+                    public static c create() {
+                        return new c();
+                    }
+                }
+                """;
+        Files.writeString(new File(packageDir, "c.java").toPath(), classC);
+
+        String classB = """
+                package a;
+                
+                import java.util.function.Supplier;
+                
+                public class b {
+                    public void testSupplier() {
+                        Supplier<c> supplier = c::create;
+                        c instance = supplier.get();
+                    }
+                }
+                """;
+        Files.writeString(new File(packageDir, "b.java").toPath(), classB);
+
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        remapper.remapJavaSource(inputDir, outputDir);
+
+        File classFile = findJavaFile(outputDir, "TestClass.java");
+        assertNotNull(classFile, "TestClass.java should exist");
+
+        String content = Files.readString(classFile.toPath());
+        log.info("Static method reference test:\n{}", content);
+
+        assertTrue(content.contains("Supplier<Helper>"),
+                "Generic type should be remapped");
+        assertTrue(content.contains("Helper::create") || content.contains("Helper instance"),
+                "Static method reference or variable type should be remapped");
+    }
+
+    @Test
+    public void testLocalVariableShadowsField() throws IOException {
+        File inputDir = tempDir.resolve("test-shadow-input").toFile();
+        File outputDir = tempDir.resolve("test-shadow-output").toFile();
+
+        File packageDir = new File(inputDir, "a");
+        FileUtils.ensureDirectory(packageDir);
+
+        String classB = """
+                package a;
+                
+                public class b {
+                    private int a;
+                
+                    public void test() {
+                        int a = 10;
+                        System.out.println(a);
+                    }
+                
+                    public int getField() {
+                        return a;
+                    }
+                }
+                """;
+        Files.writeString(new File(packageDir, "b.java").toPath(), classB);
+
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        remapper.remapJavaSource(inputDir, outputDir);
+
+        File outputFile = findJavaFile(outputDir, "TestClass.java");
+        assertNotNull(outputFile, "TestClass.java should exist");
+
+        String content = Files.readString(outputFile.toPath());
+        log.info("Shadow test:\n{}", content);
+
+        assertTrue(content.contains("int a = 10"),
+                "Local variable 'a' should not be remapped");
+        assertTrue(content.contains("System.out.println(a)"),
+                "Local variable reference should not be remapped");
+        assertTrue(content.contains("return mValue"),
+                "Field reference 'a' should be remapped to 'mValue'");
     }
 
     private File findJavaFile(File dir, String fileName) {
