@@ -765,19 +765,34 @@ public class JavaRemapper {
                     }
                 }
             } else {
-                // 无 scope：静态导入的方法调用
-                String ownerClass = staticImportedMembers.get(methodName);
-                if (ownerClass != null) {
-                    String remappedName = remapMethod(ownerClass, methodName);
-                    if (!remappedName.equals(methodName)) {
-                        n.setName(remappedName);
+                // 无 scope 先尝试 SymbolSolver 解析
+                try {
+                    ResolvedMethodDeclaration resolved = n.resolve();
+                    String ownerClass = toInternalName(resolved.declaringType().getQualifiedName());
+                    String remappedMethod = remapMethod(ownerClass, methodName);
+                    if (!remappedMethod.equals(methodName)) {
+                        n.setName(remappedMethod);
+                        remapped = true;
                     }
-                } else {
-                    for (String asteriskClass : staticAsteriskClasses) {
-                        String remappedName = remapMethod(asteriskClass, methodName);
+                } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
+                    log.debug("Failed to resolve no-scope method call '{}': {}", methodName, e.getMessage());
+                }
+
+                // 回退到静态导入检查
+                if (!remapped) {
+                    String ownerClass = staticImportedMembers.get(methodName);
+                    if (ownerClass != null) {
+                        String remappedName = remapMethod(ownerClass, methodName);
                         if (!remappedName.equals(methodName)) {
                             n.setName(remappedName);
-                            break;
+                        }
+                    } else {
+                        for (String asteriskClass : staticAsteriskClasses) {
+                            String remappedName = remapMethod(asteriskClass, methodName);
+                            if (!remappedName.equals(methodName)) {
+                                n.setName(remappedName);
+                                break;
+                            }
                         }
                     }
                 }
