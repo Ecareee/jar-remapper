@@ -852,11 +852,28 @@ public class JavaRemapper {
         private void remapPatternType(Type type) {
             if (type instanceof ClassOrInterfaceType) {
                 ClassOrInterfaceType classType = (ClassOrInterfaceType) type;
+
+                if (classType.getScope().isPresent()) {
+                    remapPatternType(classType.getScope().get());
+                }
+
                 String remapped = remapSimpleName(classType.getNameAsString(), classType);
                 if (remapped != null) {
                     // 直接修改名称，避免替换整个节点导致 LexicalPreservingPrinter 问题
                     classType.setName(remapped);
                 }
+
+                if (classType.getTypeArguments().isPresent()) {
+                    for (Type arg : classType.getTypeArguments().get()) {
+                        remapPatternType(arg);
+                    }
+                }
+            } else if (type instanceof ArrayType) {
+                remapPatternType(((ArrayType) type).getComponentType());
+            } else if (type instanceof WildcardType) {
+                WildcardType wildcardType = (WildcardType) type;
+                wildcardType.getExtendedType().ifPresent(this::remapPatternType);
+                wildcardType.getSuperType().ifPresent(this::remapPatternType);
             }
         }
 
