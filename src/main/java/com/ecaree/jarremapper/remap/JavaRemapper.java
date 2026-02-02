@@ -574,9 +574,10 @@ public class JavaRemapper {
             String fieldName = n.getNameAsString();
 
             try {
-                ResolvedType scopeType = n.getScope().calculateResolvedType();
-                if (scopeType.isReferenceType()) {
-                    String ownerClass = toInternalName(scopeType.asReferenceType().getQualifiedName());
+                ResolvedValueDeclaration resolved = n.resolve();
+                if (resolved.isField()) {
+                    ResolvedFieldDeclaration field = resolved.asField();
+                    String ownerClass = toInternalName(field.declaringType().getQualifiedName());
                     String remappedField = tryGetFieldMapping(ownerClass, fieldName);
                     if (remappedField != null) {
                         n.setName(remappedField);
