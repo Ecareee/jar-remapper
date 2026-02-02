@@ -628,12 +628,29 @@ public class JavaRemapper {
                 log.debug("Failed to resolve field access '{}': {}", n, e.getMessage());
             }
 
-            // 回退：使用全局唯一字段名映射
             if (!remapped) {
-                String fallbackRemapped = uniqueFieldMappings.get(fieldName);
-                if (fallbackRemapped != null) {
-                    n.setName(fallbackRemapped);
-                    log.debug("Field '{}' remapped to '{}' via fallback", fieldName, fallbackRemapped);
+                // 尝试从 scope 类型推断
+                try {
+                    ResolvedType scopeType = n.getScope().calculateResolvedType();
+                    if (scopeType.isReferenceType()) {
+                        String ownerClass = toInternalName(scopeType.asReferenceType().getQualifiedName());
+                        String remappedField = tryGetFieldMapping(ownerClass, fieldName);
+                        if (remappedField != null) {
+                            n.setName(remappedField);
+                            remapped = true;
+                        }
+                    }
+                } catch (Exception e) {
+                    log.debug("Failed to resolve scope type: {}", e.getMessage());
+                }
+
+                // 最后回退到全局唯一映射
+                if (!remapped) {
+                    String fallbackRemapped = uniqueFieldMappings.get(fieldName);
+                    if (fallbackRemapped != null) {
+                        n.setName(fallbackRemapped);
+                        log.debug("Field '{}' remapped to '{}' via fallback", fieldName, fallbackRemapped);
+                    }
                 }
             }
 
