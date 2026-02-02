@@ -60,8 +60,8 @@ public class JavaRemapper {
     private final MappingData mappingData;
     private final List<File> libraryJars;
     private final Map<String, List<String>> simpleNameToObfClasses;
-    private final Map<String, Map<String, String>> staticFieldIndex;
-    private final Map<String, Map<String, String>> staticMethodIndex;
+    private final Map<String, Map<String, String>> fieldIndex;
+    private final Map<String, Map<String, String>> methodIndex;
     private final Map<String, String> packageMappingIndex;
     private final Map<String, String> uniqueFieldMappings;
 
@@ -73,8 +73,8 @@ public class JavaRemapper {
         this.mappingData = mappingData;
         this.libraryJars = libraryJars != null ? libraryJars : new ArrayList<>();
         this.simpleNameToObfClasses = buildSimpleNameIndex();
-        this.staticFieldIndex = buildStaticFieldIndex();
-        this.staticMethodIndex = buildStaticMethodIndex();
+        this.fieldIndex = buildFieldIndex();
+        this.methodIndex = buildMethodIndex();
         this.packageMappingIndex = buildPackageMappingIndex();
         this.uniqueFieldMappings = buildUniqueFieldMappings();
     }
@@ -98,7 +98,7 @@ public class JavaRemapper {
         return index;
     }
 
-    private Map<String, Map<String, String>> buildStaticFieldIndex() {
+    private Map<String, Map<String, String>> buildFieldIndex() {
         Map<String, Map<String, String>> index = new HashMap<>();
         JarMapping jarMapping = mappingData.getJarMapping();
 
@@ -119,7 +119,7 @@ public class JavaRemapper {
         return index;
     }
 
-    private Map<String, Map<String, String>> buildStaticMethodIndex() {
+    private Map<String, Map<String, String>> buildMethodIndex() {
         Map<String, Map<String, String>> index = new HashMap<>();
         JarMapping jarMapping = mappingData.getJarMapping();
 
@@ -301,7 +301,7 @@ public class JavaRemapper {
         LexicalPreservingPrinter.setup(cu);
 
         RemappingVisitor visitor = new RemappingVisitor(
-                mappingData, simpleNameToObfClasses, staticFieldIndex, staticMethodIndex,
+                mappingData, simpleNameToObfClasses, fieldIndex, methodIndex,
                 packageMappingIndex, uniqueFieldMappings);
         visitor.initImports(cu);
 
@@ -454,7 +454,7 @@ public class JavaRemapper {
                     String memberName = fullName.substring(lastDot + 1);
                     String internalName = className.replace('.', '/');
                     String remappedClass = mappingData.mapClass(internalName);
-                    String remappedMember = remapStaticMember(internalName, memberName);
+                    String remappedMember = remapMember(internalName, memberName);
                     if (!remappedClass.equals(internalName) || !remappedMember.equals(memberName)) {
                         n.setName(remappedClass.replace('/', '.') + "." + remappedMember);
                     }
@@ -607,7 +607,7 @@ public class JavaRemapper {
             // 1. 检查静态导入成员
             String ownerClass = staticImportedMembers.get(name);
             if (ownerClass != null) {
-                String remapped = remapStaticField(ownerClass, name);
+                String remapped = remapField(ownerClass, name);
                 if (!remapped.equals(name)) {
                     n.setName(remapped);
                 }
@@ -650,7 +650,7 @@ public class JavaRemapper {
             String foundOwner = null;
             String foundRemapped = null;
             for (String asteriskClass : staticAsteriskClasses) {
-                String remapped = remapStaticField(asteriskClass, name);
+                String remapped = remapField(asteriskClass, name);
                 if (!remapped.equals(name)) {
                     if (foundOwner != null && !foundOwner.equals(asteriskClass)) {
                         log.warn("Ambiguous static member '{}' found in multiple asterisk imports: {}, {}",
@@ -697,13 +697,13 @@ public class JavaRemapper {
 
                 String ownerClass = staticImportedMembers.get(methodName);
                 if (ownerClass != null) {
-                    String remappedName = remapStaticMethod(ownerClass, methodName);
+                    String remappedName = remapMethod(ownerClass, methodName);
                     if (!remappedName.equals(methodName)) {
                         n.setName(remappedName);
                     }
                 } else {
                     for (String asteriskClass : staticAsteriskClasses) {
-                        String remappedName = remapStaticMethod(asteriskClass, methodName);
+                        String remappedName = remapMethod(asteriskClass, methodName);
                         if (!remappedName.equals(methodName)) {
                             n.setName(remappedName);
                             break;
@@ -731,7 +731,7 @@ public class JavaRemapper {
                     ResolvedType type = scope.asTypeExpr().getType().resolve();
                     if (type.isReferenceType()) {
                         String ownerClass = toInternalName(type.asReferenceType().getQualifiedName());
-                        String remapped = remapStaticMethod(ownerClass, methodName);
+                        String remapped = remapMethod(ownerClass, methodName);
                         if (!remapped.equals(methodName)) {
                             n.setIdentifier(remapped);
                         }
@@ -740,7 +740,7 @@ public class JavaRemapper {
                     ResolvedType scopeType = scope.calculateResolvedType();
                     if (scopeType.isReferenceType()) {
                         String ownerClass = toInternalName(scopeType.asReferenceType().getQualifiedName());
-                        String remapped = remapStaticMethod(ownerClass, methodName);
+                        String remapped = remapMethod(ownerClass, methodName);
                         if (!remapped.equals(methodName)) {
                             n.setIdentifier(remapped);
                         }
@@ -1217,15 +1217,15 @@ public class JavaRemapper {
             return lastSeparator >= 0 ? readableClass.substring(lastSeparator + 1) : readableClass;
         }
 
-        private String remapStaticMember(String ownerClass, String memberName) {
-            String fieldRemapped = remapStaticField(ownerClass, memberName);
+        private String remapMember(String ownerClass, String memberName) {
+            String fieldRemapped = remapField(ownerClass, memberName);
             if (!fieldRemapped.equals(memberName)) {
                 return fieldRemapped;
             }
-            return remapStaticMethod(ownerClass, memberName);
+            return remapMethod(ownerClass, memberName);
         }
 
-        private String remapStaticField(String ownerClass, String fieldName) {
+        private String remapField(String ownerClass, String fieldName) {
             Map<String, String> memberMap = staticFieldIndex.get(ownerClass);
             if (memberMap == null) {
                 return fieldName;
@@ -1234,7 +1234,7 @@ public class JavaRemapper {
             return remapped != null ? remapped : fieldName;
         }
 
-        private String remapStaticMethod(String ownerClass, String methodName) {
+        private String remapMethod(String ownerClass, String methodName) {
             Map<String, String> memberMap = staticMethodIndex.get(ownerClass);
             if (memberMap == null) {
                 return methodName;
