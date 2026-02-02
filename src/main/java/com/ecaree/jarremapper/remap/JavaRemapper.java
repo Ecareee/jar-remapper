@@ -185,6 +185,11 @@ public class JavaRemapper {
         return index;
     }
 
+    /**
+     * 构建全局唯一字段名映射
+     * 只有当某字段名在所有类中都映射到同一名称时才加入
+     * 用于 SymbolSolver 失败时的回退
+     */
     private Map<String, String> buildUniqueFieldMappings() {
         Map<String, String> index = new HashMap<>();
         Set<String> conflicts = new HashSet<>();
@@ -205,6 +210,11 @@ public class JavaRemapper {
         return index;
     }
 
+    /**
+     * 构建全局唯一方法名映射
+     * 只有当某方法名在所有类中都映射到同一名称时才加入
+     * 用于 SymbolSolver 失败时的回退
+     */
     private Map<String, String> buildUniqueMethodMappings() {
         Map<String, String> index = new HashMap<>();
         Set<String> conflicts = new HashSet<>();
@@ -385,7 +395,11 @@ public class JavaRemapper {
     }
 
     /**
-     * 类型感知的重映射访问器
+     * 类型感知的 AST 重映射访问器
+     * 处理策略：
+     * 1. 类型声明：先遍历子节点，最后修改类名，避免影响 SymbolSolver
+     * 2. 类型引用：优先使用 SymbolSolver 解析，回退到简单名匹配
+     * 3. 字段/方法引用：优先使用 SymbolSolver，回退到全局唯一映射
      */
     @RequiredArgsConstructor
     private static class RemappingVisitor extends VoidVisitorAdapter<Void> {
@@ -503,7 +517,7 @@ public class JavaRemapper {
             /*
              * 字段/方法重映射时，getEnclosingClassName() 通过 SymbolResolver 获取原始混淆类名来匹配 mapping
              * 如果先修改类名，SymbolResolver 返回的是修改后的类名，会导致 mapping 查找失败
-             * 所以必须先遍历子节点，最后再修改类名
+             * 所以必须先遍历子节点，最后再修改类名，避免影响 SymbolSolver 解析
              */
             super.visit(n, arg);
 
@@ -614,7 +628,7 @@ public class JavaRemapper {
                 log.debug("Failed to resolve field access '{}': {}", n, e.getMessage());
             }
 
-            // 回退：使用唯一字段名映射
+            // 回退：使用全局唯一字段名映射
             if (!remapped) {
                 String fallbackRemapped = uniqueFieldMappings.get(fieldName);
                 if (fallbackRemapped != null) {
@@ -725,6 +739,7 @@ public class JavaRemapper {
                     log.debug("Failed to resolve method call '{}': {}", n, e.getMessage());
                 }
 
+                // 回退：使用全局唯一方法名映射
                 if (!remapped) {
                     String fallbackRemapped = uniqueMethodMappings.get(methodName);
                     if (fallbackRemapped != null) {
@@ -733,6 +748,7 @@ public class JavaRemapper {
                     }
                 }
             } else {
+                // 无 scope：静态导入的方法调用
                 String ownerClass = staticImportedMembers.get(methodName);
                 if (ownerClass != null) {
                     String remappedName = remapMethod(ownerClass, methodName);
@@ -757,6 +773,7 @@ public class JavaRemapper {
         public void visit(MethodReferenceExpr n, Void arg) {
             String methodName = n.getIdentifier();
 
+            // Class::new 不重映射
             if ("new".equals(methodName)) {
                 super.visit(n, arg);
                 return;
@@ -776,6 +793,7 @@ public class JavaRemapper {
                 log.debug("Failed to resolve method reference '{}': {}", n, e.getMessage());
             }
 
+            // 回退：解析 scope 类型
             if (!remapped) {
                 try {
                     String ownerClass = resolveMethodReferenceScopeType(n.getScope());
@@ -890,6 +908,10 @@ public class JavaRemapper {
             super.visit(n, arg);
         }
 
+        /**
+         * 修改 pattern 中的类型名
+         * 直接修改名称，避免替换整个节点导致 LexicalPreservingPrinter 问题
+         */
         private void remapPatternType(Type type) {
             if (type instanceof ClassOrInterfaceType) {
                 ClassOrInterfaceType classType = (ClassOrInterfaceType) type;
@@ -900,7 +922,6 @@ public class JavaRemapper {
 
                 String remapped = remapSimpleName(classType.getNameAsString(), classType);
                 if (remapped != null) {
-                    // 直接修改名称，避免替换整个节点导致 LexicalPreservingPrinter 问题
                     classType.setName(remapped);
                 }
 
@@ -920,7 +941,9 @@ public class JavaRemapper {
 
         /**
          * 克隆并重映射类型
-         * 返回 null 表示不需要修改
+         * 用于需要替换整个类型节点的场景，如 FieldDeclaration 的 phantom 类型
+         *
+         * @return 重映射后的新类型，如果不需要修改返回 null
          */
         private Type remapAndCloneType(Type type) {
             if (type instanceof ClassOrInterfaceType) {
@@ -1068,6 +1091,10 @@ public class JavaRemapper {
             }
         }
 
+        /**
+         * 检查是否被局部变量遮蔽
+         * 用于 SymbolSolver 失败时判断 NameExpr 是否指向类字段
+         */
         private boolean isShadowedByLocalVariable(Node node, String name) {
             Node current = node.getParentNode().orElse(null);
 
@@ -1180,7 +1207,11 @@ public class JavaRemapper {
 
         /**
          * 根据简单名查找映射
-         * 优先使用 SymbolSolver 解析完整类名，回退到简单名匹配
+         * 解析顺序：
+         * 1. SymbolSolver 解析完整类名
+         * 2. 缓存查找
+         * 3. 唯一匹配直接使用
+         * 4. 多个匹配时从 import 推断
          */
         private String remapSimpleName(String simpleName, Node context) {
             // 1. 优先尝试 SymbolSolver 解析
@@ -1228,6 +1259,13 @@ public class JavaRemapper {
             return result;
         }
 
+        /**
+         * 多个候选类时从 import 推断
+         * 优先级：
+         * 1. 精确 import
+         * 2. 同包类
+         * 3. 星号 import 的包
+         */
         private String resolveConflictFromImports(String simpleName, List<String> candidates) {
             String importedClass = importedClasses.get(simpleName);
             if (importedClass != null) {
@@ -1274,6 +1312,10 @@ public class JavaRemapper {
             return lastSeparator >= 0 ? readableClass.substring(lastSeparator + 1) : readableClass;
         }
 
+        /**
+         * 静态 import 成员重映射
+         * 先查字段，再查方法
+         */
         private String remapMember(String ownerClass, String memberName) {
             String fieldRemapped = remapField(ownerClass, memberName);
             if (!fieldRemapped.equals(memberName)) {
@@ -1308,6 +1350,7 @@ public class JavaRemapper {
 
         /**
          * 将 Java 完全限定名转换为 JVM 内部名
+         * 使用启发式规则，首字母大写的部分开始用 $ 分隔内部类
          * 例如 com.example.Outer.Inner -> com/example/Outer$Inner
          */
         private String toInternalName(String qualifiedName) {
