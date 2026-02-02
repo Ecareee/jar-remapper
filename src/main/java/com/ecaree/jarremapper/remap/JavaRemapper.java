@@ -720,8 +720,7 @@ public class JavaRemapper {
             String methodName = n.getIdentifier();
 
             try {
-                String identifier = n.getIdentifier();
-                if ("new".equals(identifier)) {
+                if ("new".equals(methodName)) {
                     super.visit(n, arg);
                     return;
                 }
