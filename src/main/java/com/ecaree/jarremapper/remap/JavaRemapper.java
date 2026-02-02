@@ -496,6 +496,16 @@ public class JavaRemapper {
                 String newName = remapSimpleName(classType.getNameAsString(), classType);
                 boolean needsRemap = newName != null;
 
+                // 检查 scope 是否需要重映射
+                ClassOrInterfaceType remappedScope = null;
+                if (classType.getScope().isPresent()) {
+                    Type scopeResult = remapAndCloneType(classType.getScope().get());
+                    if (scopeResult instanceof ClassOrInterfaceType) {
+                        remappedScope = (ClassOrInterfaceType) scopeResult;
+                        needsRemap = true;
+                    }
+                }
+
                 // 检查泛型参数是否需要重映射
                 if (classType.getTypeArguments().isPresent()) {
                     for (Type arg : classType.getTypeArguments().get()) {
@@ -509,6 +519,15 @@ public class JavaRemapper {
                 if (needsRemap) {
                     ClassOrInterfaceType newType = new ClassOrInterfaceType();
                     newType.setName(newName != null ? newName : classType.getNameAsString());
+
+                    // 设置 scope
+                    if (classType.getScope().isPresent()) {
+                        if (remappedScope != null) {
+                            newType.setScope(remappedScope);
+                        } else {
+                            newType.setScope(classType.getScope().get().clone());
+                        }
+                    }
 
                     // 处理泛型参数
                     if (classType.getTypeArguments().isPresent()) {
@@ -540,9 +559,17 @@ public class JavaRemapper {
         private boolean needsRemapType(Type type) {
             if (type instanceof ClassOrInterfaceType) {
                 ClassOrInterfaceType classType = (ClassOrInterfaceType) type;
+
                 if (remapSimpleName(classType.getNameAsString(), classType) != null) {
                     return true;
                 }
+
+                if (classType.getScope().isPresent()) {
+                    if (needsRemapType(classType.getScope().get())) {
+                        return true;
+                    }
+                }
+
                 if (classType.getTypeArguments().isPresent()) {
                     for (Type arg : classType.getTypeArguments().get()) {
                         if (needsRemapType(arg)) {

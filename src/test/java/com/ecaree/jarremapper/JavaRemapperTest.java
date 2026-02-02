@@ -253,6 +253,52 @@ public class JavaRemapperTest {
     }
 
     @Test
+    public void testRemapQualifiedTypes() throws IOException {
+        File inputDir = tempDir.resolve("test-qualified-input").toFile();
+        File outputDir = tempDir.resolve("test-qualified-output").toFile();
+
+        File packageDir = new File(inputDir, "a");
+        FileUtils.ensureDirectory(packageDir);
+
+        String java = """
+                package a;
+                
+                public class b {
+                    // 限定类型引用
+                    private b.Inner inner;
+                
+                    // 限定类型作为泛型参数
+                    private java.util.Map<String, b.Inner> map;
+                
+                    public b.Inner getInner() {
+                        return inner;
+                    }
+                
+                    public static class Inner {
+                        public int value;
+                    }
+                }
+                """;
+        Files.writeString(new File(packageDir, "b.java").toPath(), java);
+
+        JavaRemapper remapper = new JavaRemapper(mappingData);
+        remapper.remapJavaSource(inputDir, outputDir);
+
+        File outputFile = findJavaFile(outputDir, "TestClass.java");
+        assertNotNull(outputFile, "TestClass.java should exist");
+
+        String content = Files.readString(outputFile.toPath());
+        log.info("Qualified types test:\n{}", content);
+
+        assertTrue(content.contains("private TestClass.Inner inner"),
+                "Qualified field type scope should be remapped");
+        assertTrue(content.contains("Map<String, TestClass.Inner>"),
+                "Qualified type in generic should be remapped");
+        assertTrue(content.contains("public TestClass.Inner getInner()"),
+                "Qualified return type should be remapped");
+    }
+
+    @Test
     public void testRemapGenericTypes() throws IOException {
         File inputDir = tempDir.resolve("test-generic-input").toFile();
         File outputDir = tempDir.resolve("test-generic-output").toFile();
