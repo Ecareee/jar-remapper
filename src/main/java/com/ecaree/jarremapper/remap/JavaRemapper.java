@@ -825,7 +825,7 @@ public class JavaRemapper {
                 log.debug("Failed to resolve method reference '{}': {}", n, e.getMessage());
             }
 
-            // 回退：解析 scope 类型
+            // 回退 1：解析 scope 类型
             if (!remapped) {
                 try {
                     String ownerClass = resolveMethodReferenceScopeType(n.getScope());
@@ -837,6 +837,15 @@ public class JavaRemapper {
                     }
                 } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
                     log.debug("Failed to resolve method reference scope '{}': {}", n, e.getMessage());
+                }
+            }
+
+            // 回退 2：全局唯一方法映射
+            if (!remapped) {
+                String fallbackRemapped = uniqueMethodMappings.get(methodName);
+                if (fallbackRemapped != null) {
+                    n.setIdentifier(fallbackRemapped);
+                    log.debug("Method reference '{}' remapped to '{}' via fallback", methodName, fallbackRemapped);
                 }
             }
 
