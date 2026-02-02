@@ -366,8 +366,8 @@ public class JavaRemapper {
     private static class RemappingVisitor extends VoidVisitorAdapter<Void> {
         private final MappingData mappingData;
         private final Map<String, List<String>> simpleNameToObfClasses;
-        private final Map<String, Map<String, String>> staticFieldIndex;
-        private final Map<String, Map<String, String>> staticMethodIndex;
+        private final Map<String, Map<String, String>> fieldIndex;
+        private final Map<String, Map<String, String>> methodIndex;
         private final Map<String, String> packageMappingIndex;
         private final Map<String, String> uniqueFieldMappings;
         private final Map<String, String> simpleNameCache = new HashMap<>();
@@ -720,34 +720,37 @@ public class JavaRemapper {
         public void visit(MethodReferenceExpr n, Void arg) {
             String methodName = n.getIdentifier();
 
-            try {
-                if ("new".equals(methodName)) {
-                    super.visit(n, arg);
-                    return;
-                }
+            if ("new".equals(methodName)) {
+                super.visit(n, arg);
+                return;
+            }
 
-                Expression scope = n.getScope();
-                if (scope.isTypeExpr()) {
-                    ResolvedType type = scope.asTypeExpr().getType().resolve();
-                    if (type.isReferenceType()) {
-                        String ownerClass = toInternalName(type.asReferenceType().getQualifiedName());
-                        String remapped = remapMethod(ownerClass, methodName);
-                        if (!remapped.equals(methodName)) {
-                            n.setIdentifier(remapped);
-                        }
-                    }
-                } else {
-                    ResolvedType scopeType = scope.calculateResolvedType();
-                    if (scopeType.isReferenceType()) {
-                        String ownerClass = toInternalName(scopeType.asReferenceType().getQualifiedName());
-                        String remapped = remapMethod(ownerClass, methodName);
-                        if (!remapped.equals(methodName)) {
-                            n.setIdentifier(remapped);
-                        }
-                    }
+            boolean remapped = false;
+
+            try {
+                ResolvedMethodDeclaration resolved = n.resolve();
+                String ownerClass = toInternalName(resolved.declaringType().getQualifiedName());
+                String remappedName = remapMethod(ownerClass, methodName);
+                if (!remappedName.equals(methodName)) {
+                    n.setIdentifier(remappedName);
+                    remapped = true;
                 }
             } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
                 log.debug("Failed to resolve method reference '{}': {}", n, e.getMessage());
+            }
+
+            if (!remapped) {
+                try {
+                    String ownerClass = resolveMethodReferenceScopeType(n.getScope());
+                    if (ownerClass != null) {
+                        String remappedName = remapMethod(ownerClass, methodName);
+                        if (!remappedName.equals(methodName)) {
+                            n.setIdentifier(remappedName);
+                        }
+                    }
+                } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
+                    log.debug("Failed to resolve method reference scope '{}': {}", n, e.getMessage());
+                }
             }
 
             super.visit(n, arg);
@@ -1243,7 +1246,7 @@ public class JavaRemapper {
         }
 
         private String remapField(String ownerClass, String fieldName) {
-            Map<String, String> memberMap = staticFieldIndex.get(ownerClass);
+            Map<String, String> memberMap = fieldIndex.get(ownerClass);
             if (memberMap == null) {
                 return fieldName;
             }
@@ -1252,7 +1255,7 @@ public class JavaRemapper {
         }
 
         private String remapMethod(String ownerClass, String methodName) {
-            Map<String, String> memberMap = staticMethodIndex.get(ownerClass);
+            Map<String, String> memberMap = methodIndex.get(ownerClass);
             if (memberMap == null) {
                 return methodName;
             }
@@ -1286,6 +1289,21 @@ public class JavaRemapper {
                 sb.append(part);
             }
             return sb.toString();
+        }
+
+        private String resolveMethodReferenceScopeType(Expression scope) {
+            if (scope.isTypeExpr()) {
+                ResolvedType type = scope.asTypeExpr().getType().resolve();
+                if (type.isReferenceType()) {
+                    return toInternalName(type.asReferenceType().getQualifiedName());
+                }
+            } else {
+                ResolvedType scopeType = scope.calculateResolvedType();
+                if (scopeType.isReferenceType()) {
+                    return toInternalName(scopeType.asReferenceType().getQualifiedName());
+                }
+            }
+            return null;
         }
 
         private String getEnclosingClassName(Node node) {
