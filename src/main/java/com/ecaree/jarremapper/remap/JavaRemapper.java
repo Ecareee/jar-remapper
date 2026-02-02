@@ -739,61 +739,52 @@ public class JavaRemapper {
 
         @Override
         public void visit(MethodCallExpr n, Void arg) {
-            boolean remapped = false;
             String methodName = n.getNameAsString();
+            boolean remapped = false;
 
-            if (n.getScope().isPresent()) {
-                try {
-                    ResolvedMethodDeclaration resolved = n.resolve();
-                    String declaringType = resolved.declaringType().getQualifiedName();
-                    String ownerClass = toInternalName(declaringType);
-                    String remappedMethod = remapMethod(ownerClass, methodName);
-                    if (!remappedMethod.equals(methodName)) {
-                        n.setName(remappedMethod);
-                        remapped = true;
-                    }
-                } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
-                    log.debug("Failed to resolve method call '{}': {}", n, e.getMessage());
+            // 尝试 SymbolSolver 解析
+            try {
+                ResolvedMethodDeclaration resolved = n.resolve();
+                String ownerClass = toInternalName(resolved.declaringType().getQualifiedName());
+                String remappedMethod = remapMethod(ownerClass, methodName);
+                if (!remappedMethod.equals(methodName)) {
+                    n.setName(remappedMethod);
+                    remapped = true;
                 }
+            } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
+                log.debug("Failed to resolve method call '{}': {}", n, e.getMessage());
+            }
 
-                // 回退：使用全局唯一方法名映射
-                if (!remapped) {
-                    String fallbackRemapped = uniqueMethodMappings.get(methodName);
-                    if (fallbackRemapped != null) {
-                        n.setName(fallbackRemapped);
-                        log.debug("Method '{}' remapped to '{}' via fallback", methodName, fallbackRemapped);
-                    }
-                }
-            } else {
-                // 无 scope 先尝试 SymbolSolver 解析
-                try {
-                    ResolvedMethodDeclaration resolved = n.resolve();
-                    String ownerClass = toInternalName(resolved.declaringType().getQualifiedName());
-                    String remappedMethod = remapMethod(ownerClass, methodName);
-                    if (!remappedMethod.equals(methodName)) {
-                        n.setName(remappedMethod);
-                        remapped = true;
-                    }
-                } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
-                    log.debug("Failed to resolve no-scope method call '{}': {}", methodName, e.getMessage());
-                }
-
-                // 回退到静态导入检查
-                if (!remapped) {
+            // 回退处理
+            if (!remapped) {
+                if (!n.getScope().isPresent()) {
+                    // 检查静态导入
                     String ownerClass = staticImportedMembers.get(methodName);
                     if (ownerClass != null) {
                         String remappedName = remapMethod(ownerClass, methodName);
                         if (!remappedName.equals(methodName)) {
                             n.setName(remappedName);
+                            remapped = true;
                         }
-                    } else {
+                    }
+                    if (!remapped) {
                         for (String asteriskClass : staticAsteriskClasses) {
                             String remappedName = remapMethod(asteriskClass, methodName);
                             if (!remappedName.equals(methodName)) {
                                 n.setName(remappedName);
+                                remapped = true;
                                 break;
                             }
                         }
+                    }
+                }
+
+                // 全局唯一映射回退
+                if (!remapped) {
+                    String fallbackRemapped = uniqueMethodMappings.get(methodName);
+                    if (fallbackRemapped != null) {
+                        n.setName(fallbackRemapped);
+                        log.debug("Method '{}' remapped to '{}' via fallback", methodName, fallbackRemapped);
                     }
                 }
             }
@@ -833,6 +824,7 @@ public class JavaRemapper {
                         String remappedName = remapMethod(ownerClass, methodName);
                         if (!remappedName.equals(methodName)) {
                             n.setIdentifier(remappedName);
+                            remapped = true;
                         }
                     }
                 } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
