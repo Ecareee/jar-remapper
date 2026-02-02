@@ -64,6 +64,7 @@ public class JavaRemapper {
     private final Map<String, Map<String, String>> methodIndex;
     private final Map<String, String> packageMappingIndex;
     private final Map<String, String> uniqueFieldMappings;
+    private final Map<String, String> uniqueMethodMappings;
 
     public JavaRemapper(MappingData mappingData) {
         this(mappingData, new ArrayList<>());
@@ -77,6 +78,7 @@ public class JavaRemapper {
         this.methodIndex = buildMethodIndex();
         this.packageMappingIndex = buildPackageMappingIndex();
         this.uniqueFieldMappings = buildUniqueFieldMappings();
+        this.uniqueMethodMappings = buildUniqueMethodMappings();
     }
 
     /**
@@ -197,21 +199,44 @@ public class JavaRemapper {
                 if (spaceIdx > 0) {
                     name = name.substring(0, spaceIdx);
                 }
-                String remapped = entry.getValue();
-                if (conflicts.contains(name)) {
-                    continue;
-                }
-                if (index.containsKey(name)) {
-                    if (!index.get(name).equals(remapped)) {
-                        index.remove(name);
-                        conflicts.add(name);
-                    }
-                } else {
-                    index.put(name, remapped);
+                addUniqueMapping(index, conflicts, name, entry.getValue());
+            }
+        }
+        return index;
+    }
+
+    private Map<String, String> buildUniqueMethodMappings() {
+        Map<String, String> index = new HashMap<>();
+        Set<String> conflicts = new HashSet<>();
+        JarMapping jarMapping = mappingData.getJarMapping();
+
+        for (Map.Entry<String, String> entry : jarMapping.methods.entrySet()) {
+            String key = entry.getKey();
+            int spaceIdx = key.indexOf(' ');
+            if (spaceIdx > 0) {
+                String ownerAndName = key.substring(0, spaceIdx);
+                int slashIdx = ownerAndName.lastIndexOf('/');
+                if (slashIdx > 0) {
+                    String name = ownerAndName.substring(slashIdx + 1);
+                    addUniqueMapping(index, conflicts, name, entry.getValue());
                 }
             }
         }
         return index;
+    }
+
+    private void addUniqueMapping(Map<String, String> index, Set<String> conflicts, String name, String remapped) {
+        if (conflicts.contains(name)) {
+            return;
+        }
+        if (index.containsKey(name)) {
+            if (!index.get(name).equals(remapped)) {
+                index.remove(name);
+                conflicts.add(name);
+            }
+        } else {
+            index.put(name, remapped);
+        }
     }
 
     /**
@@ -302,7 +327,7 @@ public class JavaRemapper {
 
         RemappingVisitor visitor = new RemappingVisitor(
                 mappingData, simpleNameToObfClasses, fieldIndex, methodIndex,
-                packageMappingIndex, uniqueFieldMappings);
+                packageMappingIndex, uniqueFieldMappings, uniqueMethodMappings);
         visitor.initImports(cu);
 
         cu.accept(visitor, null);
@@ -370,6 +395,7 @@ public class JavaRemapper {
         private final Map<String, Map<String, String>> methodIndex;
         private final Map<String, String> packageMappingIndex;
         private final Map<String, String> uniqueFieldMappings;
+        private final Map<String, String> uniqueMethodMappings;
         private final Map<String, String> simpleNameCache = new HashMap<>();
         private final Map<String, String> importedClasses = new HashMap<>();
         private final Set<String> importedPackages = new HashSet<>();
@@ -683,19 +709,30 @@ public class JavaRemapper {
         @Override
         public void visit(MethodCallExpr n, Void arg) {
             boolean remapped = false;
+            String methodName = n.getNameAsString();
 
-            try {
-                ResolvedMethodDeclaration resolved = n.resolve();
-                String ownerClass = toInternalName(resolved.declaringType().getQualifiedName());
-                tryRemapMethod(n, ownerClass, n.getNameAsString(), buildDescriptor(resolved));
-                remapped = true;
-            } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
-                log.debug("Failed to resolve method call '{}': {}", n.getNameAsString(), e.getMessage());
-            }
+            if (n.getScope().isPresent()) {
+                try {
+                    ResolvedMethodDeclaration resolved = n.resolve();
+                    String declaringType = resolved.declaringType().getQualifiedName();
+                    String ownerClass = toInternalName(declaringType);
+                    String remappedMethod = remapMethod(ownerClass, methodName);
+                    if (!remappedMethod.equals(methodName)) {
+                        n.setName(remappedMethod);
+                        remapped = true;
+                    }
+                } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
+                    log.debug("Failed to resolve method call '{}': {}", n, e.getMessage());
+                }
 
-            if (!remapped && !n.getScope().isPresent()) {
-                String methodName = n.getNameAsString();
-
+                if (!remapped) {
+                    String fallbackRemapped = uniqueMethodMappings.get(methodName);
+                    if (fallbackRemapped != null) {
+                        n.setName(fallbackRemapped);
+                        log.debug("Method '{}' remapped to '{}' via fallback", methodName, fallbackRemapped);
+                    }
+                }
+            } else {
                 String ownerClass = staticImportedMembers.get(methodName);
                 if (ownerClass != null) {
                     String remappedName = remapMethod(ownerClass, methodName);
