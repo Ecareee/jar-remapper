@@ -4,6 +4,7 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import net.md_5.specialsource.JarMapping;
 import net.md_5.specialsource.JarRemapper;
+import net.md_5.specialsource.NodeType;
 
 import java.util.HashSet;
 import java.util.Map;
@@ -69,14 +70,16 @@ public class MappingData {
         if (isExcluded(owner)) {
             return name;
         }
-        return jarMapping.fields.getOrDefault(owner + "/" + name, name);
+        String mapped = jarMapping.tryClimb(jarMapping.fields, NodeType.FIELD, owner, name, null, -1);
+        return mapped != null ? mapped : name;
     }
 
     public String mapMethod(String owner, String name, String descriptor) {
         if (isExcluded(owner)) {
             return name;
         }
-        return jarMapping.methods.getOrDefault(owner + "/" + name + " " + descriptor, name);
+        String mapped = jarMapping.tryClimb(jarMapping.methods, NodeType.METHOD, owner, name + " " + descriptor, null, -1);
+        return mapped != null ? mapped : name;
     }
 
     public void addExcludedPackage(String packageName) {
