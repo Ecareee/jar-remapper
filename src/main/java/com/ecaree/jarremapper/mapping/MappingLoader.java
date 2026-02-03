@@ -1,5 +1,6 @@
 package com.ecaree.jarremapper.mapping;
 
+import lombok.extern.slf4j.Slf4j;
 import net.md_5.specialsource.JarMapping;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
@@ -21,6 +22,7 @@ import java.util.Map;
  * - YAML（自定义，支持注释）
  * - SRG/CSRG/TSRG/TSRG2/ProGuard（SpecialSource 原生）
  */
+@Slf4j
 public class MappingLoader {
     public static MappingData load(File mappingFile) throws IOException {
         String fileName = mappingFile.getName().toLowerCase();
@@ -170,8 +172,18 @@ public class MappingLoader {
         }
 
         for (YamlMappingModel.ClassMapping classMapping : model.getClasses()) {
+            if (classMapping == null) {
+                continue;
+            }
+
             String obfClass = toInternalName(classMapping.getObfuscated());
             String readableClass = toInternalName(classMapping.getReadable());
+
+            if (obfClass == null || readableClass == null) {
+                log.warn("Skipping invalid class mapping: obfuscated={}, readable={}",
+                        classMapping.getObfuscated(), classMapping.getReadable());
+                continue;
+            }
 
             jarMapping.classes.put(obfClass, readableClass);
 
@@ -181,14 +193,27 @@ public class MappingLoader {
 
             if (classMapping.getFields() != null) {
                 for (YamlMappingModel.FieldMapping fieldMapping : classMapping.getFields()) {
-                    String obfFieldKey = obfClass + "/" + fieldMapping.getObfuscated();
-                    jarMapping.fields.put(obfFieldKey, fieldMapping.getReadable());
+                    if (fieldMapping == null) {
+                        continue;
+                    }
+
+                    String obfFieldName = fieldMapping.getObfuscated();
+                    String readableFieldName = fieldMapping.getReadable();
+
+                    if (obfFieldName == null || readableFieldName == null) {
+                        log.warn("Skipping invalid field mapping: class={}, obfuscated={}, readable={}",
+                                readableClass, obfFieldName, readableFieldName);
+                        continue;
+                    }
+
+                    String obfFieldKey = obfClass + "/" + obfFieldName;
+                    jarMapping.fields.put(obfFieldKey, readableFieldName);
 
                     String readableDescriptor = remapDescriptor(fieldMapping.getType(), jarMapping);
 
                     MappingEntry fieldEntry = MappingEntry.forField(
-                            obfClass, fieldMapping.getObfuscated(), fieldMapping.getType(),
-                            readableClass, fieldMapping.getReadable(), readableDescriptor,
+                            obfClass, obfFieldName, fieldMapping.getType(),
+                            readableClass, readableFieldName, readableDescriptor,
                             fieldMapping.getComment());
                     entries.put(fieldEntry.getReadableKey(), fieldEntry);
                 }
@@ -196,14 +221,28 @@ public class MappingLoader {
 
             if (classMapping.getMethods() != null) {
                 for (YamlMappingModel.MethodMapping methodMapping : classMapping.getMethods()) {
-                    String obfMethodKey = obfClass + "/" + methodMapping.getObfuscated() + " " + methodMapping.getDescriptor();
-                    jarMapping.methods.put(obfMethodKey, methodMapping.getReadable());
+                    if (methodMapping == null) {
+                        continue;
+                    }
 
-                    String readableDescriptor = remapDescriptor(methodMapping.getDescriptor(), jarMapping);
+                    String obfMethodName = methodMapping.getObfuscated();
+                    String readableMethodName = methodMapping.getReadable();
+                    String descriptor = methodMapping.getDescriptor();
+
+                    if (obfMethodName == null || readableMethodName == null || descriptor == null) {
+                        log.warn("Skipping invalid method mapping: class={}, obfuscated={}, readable={}, descriptor={}",
+                                readableClass, obfMethodName, readableMethodName, descriptor);
+                        continue;
+                    }
+
+                    String obfMethodKey = obfClass + "/" + obfMethodName + " " + descriptor;
+                    jarMapping.methods.put(obfMethodKey, readableMethodName);
+
+                    String readableDescriptor = remapDescriptor(descriptor, jarMapping);
 
                     MappingEntry methodEntry = MappingEntry.forMethod(
-                            obfClass, methodMapping.getObfuscated(), methodMapping.getDescriptor(),
-                            readableClass, methodMapping.getReadable(), readableDescriptor,
+                            obfClass, obfMethodName, descriptor,
+                            readableClass, readableMethodName, readableDescriptor,
                             methodMapping.getComment());
                     entries.put(methodEntry.getReadableKey(), methodEntry);
                 }
