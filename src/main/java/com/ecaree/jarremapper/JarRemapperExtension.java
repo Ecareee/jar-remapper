@@ -32,7 +32,7 @@ public class JarRemapperExtension {
     private final RegularFileProperty mappingsSpecialSource;
 
     /**
-     * 排除的包前缀列表，这些包下的类不会被重映射
+     * 排除的包名列表，这些包下的类不会被重映射
      */
     private final ListProperty<String> excludedPackages;
 
