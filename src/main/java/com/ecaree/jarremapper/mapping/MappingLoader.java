@@ -185,6 +185,15 @@ public class MappingLoader {
                 continue;
             }
 
+            if (jarMapping.classes.containsKey(obfClass)) {
+                String existing = jarMapping.classes.get(obfClass);
+                if (!readableClass.equals(existing)) {
+                    throw new IllegalArgumentException("Duplicate class mapping: " + obfClass + " -> " + readableClass
+                            + " but already mapped to " + existing);
+                }
+                continue;
+            }
+
             jarMapping.classes.put(obfClass, readableClass);
 
             MappingEntry classEntry = MappingEntry.forClass(
@@ -207,6 +216,16 @@ public class MappingLoader {
                     }
 
                     String obfFieldKey = obfClass + "/" + obfFieldName;
+
+                    if (jarMapping.fields.containsKey(obfFieldKey)) {
+                        String existing = jarMapping.fields.get(obfFieldKey);
+                        if (!readableFieldName.equals(existing)) {
+                            throw new IllegalArgumentException("Duplicate field mapping: " + obfFieldKey + " -> " + readableFieldName
+                                    + " but already mapped to " + existing);
+                        }
+                        continue;
+                    }
+
                     jarMapping.fields.put(obfFieldKey, readableFieldName);
 
                     String readableDescriptor = remapDescriptor(fieldMapping.getType(), jarMapping);
@@ -236,6 +255,16 @@ public class MappingLoader {
                     }
 
                     String obfMethodKey = obfClass + "/" + obfMethodName + " " + descriptor;
+
+                    if (jarMapping.methods.containsKey(obfMethodKey)) {
+                        String existing = jarMapping.methods.get(obfMethodKey);
+                        if (!readableMethodName.equals(existing)) {
+                            throw new IllegalArgumentException("Duplicate method mapping: " + obfMethodKey + " -> " + readableMethodName
+                                    + " but already mapped to " + existing);
+                        }
+                        continue;
+                    }
+
                     jarMapping.methods.put(obfMethodKey, readableMethodName);
 
                     String readableDescriptor = remapDescriptor(descriptor, jarMapping);
