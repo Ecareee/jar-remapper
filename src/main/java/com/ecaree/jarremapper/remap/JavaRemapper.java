@@ -1385,6 +1385,9 @@ public class JavaRemapper {
          * 将 Java 完全限定名转换为 JVM 内部名
          * 使用启发式规则，首字母大写的部分开始用 $ 分隔内部类
          * 例如 com.example.Outer.Inner -> com/example/Outer$Inner
+         * <p>
+         * 如果有人包名中有大写字母，这里会炸，如果那个人是你，请立即反思你的人生选择
+         * 此处不会处理这种情况，因为这种人不值得被正确处理
          */
         private String toInternalName(String qualifiedName) {
             StringBuilder sb = new StringBuilder();
