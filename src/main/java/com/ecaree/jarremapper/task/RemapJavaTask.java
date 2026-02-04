@@ -2,7 +2,7 @@ package com.ecaree.jarremapper.task;
 
 import com.ecaree.jarremapper.JarRemapperExtension;
 import com.ecaree.jarremapper.mapping.MappingData;
-import com.ecaree.jarremapper.mapping.MappingLoader;
+import com.ecaree.jarremapper.mapping.MappingHelper;
 import com.ecaree.jarremapper.remap.JavaRemapper;
 import lombok.Getter;
 import lombok.Setter;
@@ -19,7 +19,6 @@ import org.gradle.api.tasks.TaskAction;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 public class RemapJavaTask extends DefaultTask {
@@ -56,7 +55,6 @@ public class RemapJavaTask extends DefaultTask {
     public void remapJava() throws IOException {
         File inputDir = extension.getJavaInputDir().get().getAsFile();
         File outputDir = getOutputDir();
-        File mappingFile = getMappingFile();
         FileCollection libraryJars = getLibraryJars();
 
         if (!inputDir.exists()) {
@@ -64,14 +62,10 @@ public class RemapJavaTask extends DefaultTask {
             return;
         }
 
-        if (mappingFile == null || !mappingFile.exists()) {
-            throw new RuntimeException("Mapping file does not exist");
-        }
-
         getLogger().lifecycle("Starting Java source remapping");
         getLogger().lifecycle("Input: {}", inputDir);
         getLogger().lifecycle("Output: {}", outputDir);
-        getLogger().lifecycle("Mapping: {}", mappingFile);
+        getLogger().lifecycle("Mapping: {}", extension.getEffectiveMappingFile());
 
         List<File> jarList = new ArrayList<>();
 
@@ -92,11 +86,8 @@ public class RemapJavaTask extends DefaultTask {
             }
         }
 
-        MappingData mappingData = MappingLoader.load(mappingFile);
-        
-        for (String pkg : extension.getExcludedPackages().getOrElse(Collections.emptyList())) {
-            mappingData.addExcludedPackage(pkg);
-        }
+        MappingData mappingData = MappingHelper.loadFromExtension(extension);
+
         if (!mappingData.getExcludedPackages().isEmpty()) {
             getLogger().lifecycle("Excluded packages: {}", mappingData.getExcludedPackages());
         }

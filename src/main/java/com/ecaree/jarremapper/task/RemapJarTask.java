@@ -2,6 +2,7 @@ package com.ecaree.jarremapper.task;
 
 import com.ecaree.jarremapper.JarRemapperExtension;
 import com.ecaree.jarremapper.mapping.MappingData;
+import com.ecaree.jarremapper.mapping.MappingHelper;
 import com.ecaree.jarremapper.mapping.MappingLoader;
 import com.ecaree.jarremapper.remap.JarRemapper;
 import lombok.Getter;
@@ -18,7 +19,6 @@ import org.gradle.api.tasks.TaskAction;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.Collections;
 
 public class RemapJarTask extends DefaultTask {
     /**
@@ -91,42 +91,60 @@ public class RemapJarTask extends DefaultTask {
     public void remapJar() throws IOException {
         File inputJar = getEffectiveInputJar();
         File outputJar = getEffectiveOutputJar();
-        File mappingFile = getEffectiveMappingFile();
         boolean reverse = this.reverse.getOrElse(false);
 
         if (!inputJar.exists()) {
             throw new RuntimeException("Input JAR file does not exist: " + inputJar);
         }
 
-        if (mappingFile == null || !mappingFile.exists()) {
-            throw new RuntimeException("Mapping file does not exist");
-        }
-
         getLogger().lifecycle("Starting JAR remapping");
         getLogger().lifecycle("Input: {}", inputJar);
         getLogger().lifecycle("Output: {}", outputJar);
-        getLogger().lifecycle("Mapping: {}", mappingFile);
         getLogger().lifecycle("Reverse: {}", reverse);
 
-        MappingData mappingData = MappingLoader.load(mappingFile, reverse);
+        MappingData mappingData;
 
-        if (extension != null) {
-            for (String pkg : extension.getExcludedPackages().getOrElse(Collections.emptyList())) {
-                mappingData.addExcludedPackage(pkg);
-            }
-            if (!mappingData.getExcludedPackages().isEmpty()) {
-                getLogger().lifecycle("Excluded packages: {}", mappingData.getExcludedPackages());
-            }
+        // 独立模式：直接指定映射文件
+        if (mappingFile.isPresent()) {
+            File mf = mappingFile.get().getAsFile();
+            getLogger().lifecycle("Mapping: {}", mf);
+            mappingData = MappingLoader.load(mf, reverse);
+        } else {
+            // Extension 模式
+            getLogger().lifecycle("Mapping: {}", extension.getEffectiveMappingFile());
+            logNamespaces();
+            mappingData = MappingHelper.loadFromExtension(extension, reverse);
         }
 
-        getLogger().lifecycle("Loaded mappings: {} classes, {} fields, {} methods",
-                mappingData.getClassCount(),
-                mappingData.getFieldCount(),
-                mappingData.getMethodCount());
+        logExcludedPackages(mappingData);
+        logMappingStats(mappingData);
 
         JarRemapper remapper = new JarRemapper(mappingData);
         remapper.remapJar(inputJar, outputJar);
 
         getLogger().lifecycle("JAR remapping completed: {}", outputJar);
+    }
+
+    private void logNamespaces() {
+        String sourceNs = extension.getSourceNamespace().getOrNull();
+        String targetNs = extension.getTargetNamespace().getOrNull();
+        if (sourceNs != null || targetNs != null) {
+            getLogger().lifecycle("Namespaces: {} -> {}",
+                    sourceNs != null ? sourceNs : "(default)",
+                    targetNs != null ? targetNs : "(default)");
+        }
+    }
+
+    private void logExcludedPackages(MappingData mappingData) {
+        if (!mappingData.getExcludedPackages().isEmpty()) {
+            getLogger().lifecycle("Excluded packages: {}", mappingData.getExcludedPackages());
+        }
+    }
+
+    private void logMappingStats(MappingData mappingData) {
+        getLogger().lifecycle("Loaded mappings: {} classes, {} fields, {} methods",
+                mappingData.getClassCount(),
+                mappingData.getFieldCount(),
+                mappingData.getMethodCount());
     }
 }

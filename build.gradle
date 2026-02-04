@@ -91,6 +91,9 @@ dependencies {
     // SpecialSource
     implementation 'net.md-5:SpecialSource:1.11.5'
 
+    // mapping-io
+    implementation 'net.fabricmc:mapping-io:0.8.0'
+
     // ASM
     implementation 'org.ow2.asm:asm:9.9.1'
     implementation 'org.ow2.asm:asm-commons:9.9.1'

@@ -18,18 +18,25 @@ public class JarRemapperExtension {
     private final Project project;
 
     /**
-     * YAML 映射文件路径
-     * 与 mappingsSpecialSource 二选一，若两者都存在优先使用 YAML
+     * 映射文件路径
+     * YAML/Tiny/Tiny2/SRG/CSRG/TSRG/TSRG2/ProGuard/Enigma/JAM/JOBF 等格式
      * 默认 mappings.yaml
      */
-    private final RegularFileProperty mappingsYaml;
+    private final RegularFileProperty mappingsFile;
 
     /**
-     * SpecialSource 格式映射文件路径
-     * SRG/CSRG/TSRG/TSRG2/ProGuard，与 mappingsYaml 二选一，若两者都存在优先使用 YAML
-     * 可选
+     * 源命名空间
+     * 用于 Tiny/TSRG2 等多命名空间格式
+     * 默认使用映射文件的第一个命名空间
      */
-    private final RegularFileProperty mappingsSpecialSource;
+    private final Property<String> sourceNamespace;
+
+    /**
+     * 目标命名空间
+     * 用于 Tiny/TSRG2 等多命名空间格式
+     * 默认使用映射文件的第二个命名空间
+     */
+    private final Property<String> targetNamespace;
 
     /**
      * 排除的包名列表，这些包下的类不会被重映射
@@ -137,8 +144,9 @@ public class JarRemapperExtension {
         ObjectFactory objects = project.getObjects();
         ProjectLayout layout = project.getLayout();
 
-        this.mappingsYaml = objects.fileProperty();
-        this.mappingsSpecialSource = objects.fileProperty();
+        this.mappingsFile = objects.fileProperty();
+        this.sourceNamespace = objects.property(String.class);
+        this.targetNamespace = objects.property(String.class);
         this.excludedPackages = objects.listProperty(String.class);
         this.inputJar = objects.fileProperty();
         this.outputJar = objects.fileProperty();
@@ -157,7 +165,7 @@ public class JarRemapperExtension {
         this.javaLibraryJars = objects.fileCollection();
         this.reportsDir = objects.directoryProperty();
 
-        mappingsYaml.convention(layout.getProjectDirectory().file("mappings.yaml"));
+        mappingsFile.convention(layout.getProjectDirectory().file("mappings.yaml"));
         excludedPackages.convention(Collections.emptyList());
         inputJar.convention(layout.getProjectDirectory().file("original/classes.jar"));
         outputJar.convention(layout.getProjectDirectory().file("original/classes-readable.jar"));
@@ -181,14 +189,10 @@ public class JarRemapperExtension {
 
     /**
      * 获取有效的映射文件
-     * 优先使用 YAML
      */
     public File getEffectiveMappingFile() {
-        if (mappingsYaml.isPresent() && mappingsYaml.get().getAsFile().exists()) {
-            return mappingsYaml.get().getAsFile();
-        }
-        if (mappingsSpecialSource.isPresent() && mappingsSpecialSource.get().getAsFile().exists()) {
-            return mappingsSpecialSource.get().getAsFile();
+        if (mappingsFile.isPresent() && mappingsFile.get().getAsFile().exists()) {
+            return mappingsFile.get().getAsFile();
         }
         return null;
     }

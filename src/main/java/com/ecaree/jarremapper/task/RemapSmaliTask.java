@@ -2,7 +2,7 @@ package com.ecaree.jarremapper.task;
 
 import com.ecaree.jarremapper.JarRemapperExtension;
 import com.ecaree.jarremapper.mapping.MappingData;
-import com.ecaree.jarremapper.mapping.MappingLoader;
+import com.ecaree.jarremapper.mapping.MappingHelper;
 import com.ecaree.jarremapper.remap.SmaliRemapper;
 import lombok.Getter;
 import lombok.Setter;
@@ -16,7 +16,6 @@ import org.gradle.api.tasks.TaskAction;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.Collections;
 
 public class RemapSmaliTask extends DefaultTask {
     @Internal
@@ -46,27 +45,19 @@ public class RemapSmaliTask extends DefaultTask {
     public void remapSmali() throws IOException {
         File inputDir = extension.getSmaliInputDir().get().getAsFile();
         File outputDir = getOutputDir();
-        File mappingFile = getMappingFile();
 
         if (!inputDir.exists()) {
             getLogger().warn("Smali input directory does not exist: {}, skipping remapping", inputDir);
             return;
         }
 
-        if (mappingFile == null || !mappingFile.exists()) {
-            throw new RuntimeException("Mapping file does not exist");
-        }
-
         getLogger().lifecycle("Starting smali remapping");
         getLogger().lifecycle("Input: {}", inputDir);
         getLogger().lifecycle("Output: {}", outputDir);
-        getLogger().lifecycle("Mapping: {}", mappingFile);
+        getLogger().lifecycle("Mapping: {}", extension.getEffectiveMappingFile());
 
-        MappingData mappingData = MappingLoader.load(mappingFile);
+        MappingData mappingData = MappingHelper.loadFromExtension(extension);
 
-        for (String pkg : extension.getExcludedPackages().getOrElse(Collections.emptyList())) {
-            mappingData.addExcludedPackage(pkg);
-        }
         if (!mappingData.getExcludedPackages().isEmpty()) {
             getLogger().lifecycle("Excluded packages: {}", mappingData.getExcludedPackages());
         }

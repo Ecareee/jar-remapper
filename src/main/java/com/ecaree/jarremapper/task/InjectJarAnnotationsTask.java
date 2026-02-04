@@ -2,7 +2,7 @@ package com.ecaree.jarremapper.task;
 
 import com.ecaree.jarremapper.JarRemapperExtension;
 import com.ecaree.jarremapper.mapping.MappingData;
-import com.ecaree.jarremapper.mapping.MappingLoader;
+import com.ecaree.jarremapper.mapping.MappingHelper;
 import com.ecaree.jarremapper.remap.AnnotationInjector;
 import lombok.Getter;
 import lombok.Setter;
@@ -47,27 +47,18 @@ public class InjectJarAnnotationsTask extends DefaultTask {
     @TaskAction
     public void injectAnnotations() throws IOException {
         File jar = getInputJar();
-        File mappingFile = getMappingFile();
         boolean includeReadable = getIncludeReadableInfo();
 
         if (!jar.exists()) {
             throw new RuntimeException("JAR file does not exist: " + jar + ", please run remapJar task first");
         }
 
-        if (mappingFile == null || !mappingFile.exists()) {
-            throw new RuntimeException("Mapping file does not exist");
-        }
-
         getLogger().lifecycle("Starting annotation injection");
         getLogger().lifecycle("JAR: {}", jar);
-        getLogger().lifecycle("Mapping: {}", mappingFile);
+        getLogger().lifecycle("Mapping: {}", extension.getEffectiveMappingFile());
         getLogger().lifecycle("Include readable info: {}", includeReadable);
 
-        MappingData mappingData = MappingLoader.load(mappingFile);
-
-        for (String pkg : extension.getExcludedPackages().getOrElse(java.util.Collections.emptyList())) {
-            mappingData.addExcludedPackage(pkg);
-        }
+        MappingData mappingData = MappingHelper.loadFromExtension(extension);
 
         AnnotationInjector injector = new AnnotationInjector(mappingData, includeReadable);
         injector.injectAnnotations(jar, jar);

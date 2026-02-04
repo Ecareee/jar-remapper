@@ -1,6 +1,10 @@
 package com.ecaree.jarremapper.mapping;
 
 import lombok.extern.slf4j.Slf4j;
+import net.fabricmc.mappingio.MappingReader;
+import net.fabricmc.mappingio.format.MappingFormat;
+import net.fabricmc.mappingio.tree.MappingTree;
+import net.fabricmc.mappingio.tree.MemoryMappingTree;
 import net.md_5.specialsource.JarMapping;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
@@ -14,25 +18,75 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
  * 映射加载器
  * 支持以下格式：
- * - YAML（自定义，支持注释）
- * - SRG/CSRG/TSRG/TSRG2/ProGuard（SpecialSource 原生）
+ * 1. 自定义：YAML（支持注释）
+ * 2. mapping-io：Tiny/Tiny2/Enigma/ProGuard/SRG/XSRG/JAM/CSRG/TSRG/TSRG2/JOBF/...
+ * 3. SpecialSource：SRG/CSRG/TSRG/TSRG2/ProGuard，作为回退
  */
 @Slf4j
 public class MappingLoader {
     public static MappingData load(File mappingFile) throws IOException {
+        return load(mappingFile, null, null);
+    }
+
+    /**
+     * 加载映射文件（指定命名空间）
+     *
+     * @param mappingFile     映射文件
+     * @param sourceNamespace 源命名空间，用于 Tiny/TSRG2 等多命名空间格式，null 表示使用默认
+     * @param targetNamespace 目标命名空间，用于 Tiny/TSRG2 等多命名空间格式，null 表示使用默认
+     */
+    public static MappingData load(File mappingFile, String sourceNamespace, String targetNamespace) throws IOException {
         String fileName = mappingFile.getName().toLowerCase();
 
+        // 1. YAML
         if (fileName.endsWith(".yaml") || fileName.endsWith(".yml")) {
             return loadYaml(mappingFile);
-        } else {
-            // SRG/CSRG/TSRG/TSRG2/ProGuard 格式，使用 SpecialSource 加载
+        }
+
+        // 2. 检查是否包含 SRG 的 PK: 行，mapping-io 不支持包映射，回退到 SpecialSource
+        if (containsPackageMapping(mappingFile)) {
+            log.info("File contains package mappings (PK:), using SpecialSource (mapping-io does not support package mappings)");
             return loadSpecialSource(mappingFile);
         }
+
+        // 3. mapping-io
+        try {
+            MappingFormat format = MappingReader.detectFormat(mappingFile.toPath());
+            if (format != null) {
+                log.info("Detected mapping format: {} (via mapping-io)", format.name);
+                return loadMappingIo(mappingFile, format, sourceNamespace, targetNamespace);
+            }
+        } catch (Exception e) {
+            log.debug("mapping-io detection failed, falling back to SpecialSource: {}", e.getMessage());
+        }
+
+        // 4. 回退到 SpecialSource
+        log.info("Loading mappings via SpecialSource (fallback)");
+        return loadSpecialSource(mappingFile);
+    }
+
+    private static boolean containsPackageMapping(File file) throws IOException {
+        try (BufferedReader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
+            String line;
+            int lineCount = 0;
+            while ((line = reader.readLine()) != null && lineCount < 100) {
+                lineCount++;
+                String trimmed = line.trim();
+                if (trimmed.startsWith("PK:")) {
+                    return true;
+                }
+                if (trimmed.startsWith("CL:") || trimmed.startsWith("FD:") || trimmed.startsWith("MD:")) {
+                    return false;
+                }
+            }
+        }
+        return false;
     }
 
     public static MappingData loadYaml(File yamlFile) throws IOException {
@@ -45,10 +99,20 @@ public class MappingLoader {
         }
     }
 
-    /**
-     * 加载 SpecialSource 格式映射（SRG/CSRG/TSRG/TSRG2/ProGuard）
-     * SpecialSource JarMapping.loadMappings 方法会自动检测格式
-     */
+    public static MappingData loadMappingIo(File mappingFile, MappingFormat format,
+                                            String sourceNamespace, String targetNamespace) throws IOException {
+        MemoryMappingTree tree = new MemoryMappingTree();
+        MappingReader.read(mappingFile.toPath(), format, tree);
+
+        return convertMappingTreeToMappingData(tree, sourceNamespace, targetNamespace);
+    }
+
+    public static MappingData loadMappingIo(File mappingFile, String sourceNamespace, String targetNamespace) throws IOException {
+        MemoryMappingTree tree = new MemoryMappingTree();
+        MappingReader.read(mappingFile.toPath(), tree);
+        return convertMappingTreeToMappingData(tree, sourceNamespace, targetNamespace);
+    }
+
     public static MappingData loadSpecialSource(File srgFile) throws IOException {
         JarMapping jarMapping = new JarMapping();
 
@@ -67,13 +131,124 @@ public class MappingLoader {
      * @param reverse     是否反转映射
      */
     public static MappingData load(File mappingFile, boolean reverse) throws IOException {
-        MappingData data = load(mappingFile);
+        return load(mappingFile, null, null, reverse);
+    }
+
+    /**
+     * 加载映射并应用反向映射
+     * 指定命名空间
+     */
+    public static MappingData load(File mappingFile, String sourceNamespace, String targetNamespace, boolean reverse) throws IOException {
+        MappingData data = load(mappingFile, sourceNamespace, targetNamespace);
 
         if (reverse) {
             return reverseMapping(data);
         }
 
         return data;
+    }
+
+    private static MappingData convertMappingTreeToMappingData(MemoryMappingTree tree,
+                                                               String sourceNamespace,
+                                                               String targetNamespace) {
+        JarMapping jarMapping = new JarMapping();
+        Map<String, MappingEntry> entries = new HashMap<>();
+
+        List<String> dstNamespaces = tree.getDstNamespaces();
+        String srcNs = tree.getSrcNamespace();
+
+        int srcNsId = -1;
+        int dstNsId = 0;
+
+        if (sourceNamespace != null && !sourceNamespace.equals(srcNs)) {
+            int idx = dstNamespaces.indexOf(sourceNamespace);
+            if (idx >= 0) {
+                srcNsId = idx;
+            } else {
+                log.warn("Source namespace '{}' not found, using default: {}", sourceNamespace, srcNs);
+            }
+        }
+
+        if (targetNamespace != null) {
+            if (targetNamespace.equals(srcNs)) {
+                log.warn("Target namespace '{}' is the source namespace, consider using reverse mode", targetNamespace);
+            } else {
+                int idx = dstNamespaces.indexOf(targetNamespace);
+                if (idx >= 0) {
+                    dstNsId = idx;
+                } else {
+                    log.warn("Target namespace '{}' not found, using default: {}",
+                            targetNamespace, dstNamespaces.isEmpty() ? "none" : dstNamespaces.get(0));
+                }
+            }
+        }
+
+        String effectiveSrcNs = srcNsId == -1 ? srcNs : dstNamespaces.get(srcNsId);
+        String effectiveDstNs = dstNamespaces.isEmpty() ? "none" : dstNamespaces.get(dstNsId);
+        log.info("Using namespaces: {} -> {}", effectiveSrcNs, effectiveDstNs);
+
+        for (MappingTree.ClassMapping classMapping : tree.getClasses()) {
+            String srcClassName = srcNsId == -1 ? classMapping.getSrcName() : classMapping.getDstName(srcNsId);
+            String dstClassName = classMapping.getDstName(dstNsId);
+
+            if (srcClassName == null) continue;
+            if (dstClassName == null) dstClassName = srcClassName;
+
+            jarMapping.classes.put(srcClassName, dstClassName);
+
+            String comment = classMapping.getComment();
+            MappingEntry classEntry = MappingEntry.forClass(srcClassName, dstClassName, comment);
+            entries.put(classEntry.getReadableKey(), classEntry);
+
+            for (MappingTree.FieldMapping fieldMapping : classMapping.getFields()) {
+                String srcFieldName = srcNsId == -1 ? fieldMapping.getSrcName() : fieldMapping.getDstName(srcNsId);
+                String dstFieldName = fieldMapping.getDstName(dstNsId);
+                String srcDesc = srcNsId == -1 ? fieldMapping.getSrcDesc() : fieldMapping.getDstDesc(srcNsId);
+
+                if (srcFieldName == null) continue;
+                if (dstFieldName == null) dstFieldName = srcFieldName;
+
+                String fieldKey = srcClassName + "/" + srcFieldName;
+                jarMapping.fields.put(fieldKey, dstFieldName);
+
+                String dstDesc = fieldMapping.getDstDesc(dstNsId);
+                if (dstDesc == null) dstDesc = remapDescriptor(srcDesc, jarMapping);
+
+                String fieldComment = fieldMapping.getComment();
+                MappingEntry fieldEntry = MappingEntry.forField(
+                        srcClassName, srcFieldName, srcDesc,
+                        dstClassName, dstFieldName, dstDesc,
+                        fieldComment);
+                entries.put(fieldEntry.getReadableKey(), fieldEntry);
+            }
+
+            for (MappingTree.MethodMapping methodMapping : classMapping.getMethods()) {
+                String srcMethodName = srcNsId == -1 ? methodMapping.getSrcName() : methodMapping.getDstName(srcNsId);
+                String dstMethodName = methodMapping.getDstName(dstNsId);
+                String srcDesc = srcNsId == -1 ? methodMapping.getSrcDesc() : methodMapping.getDstDesc(srcNsId);
+
+                if (srcMethodName == null || srcDesc == null) continue;
+                if (dstMethodName == null) dstMethodName = srcMethodName;
+
+                String methodKey = srcClassName + "/" + srcMethodName + " " + srcDesc;
+                jarMapping.methods.put(methodKey, dstMethodName);
+
+                String dstDesc = methodMapping.getDstDesc(dstNsId);
+                if (dstDesc == null) dstDesc = remapDescriptor(srcDesc, jarMapping);
+
+                String methodComment = methodMapping.getComment();
+                MappingEntry methodEntry = MappingEntry.forMethod(
+                        srcClassName, srcMethodName, srcDesc,
+                        dstClassName, dstMethodName, dstDesc,
+                        methodComment);
+                entries.put(methodEntry.getReadableKey(), methodEntry);
+            }
+        }
+
+        log.info("Loaded {} classes, {} fields, {} methods via mapping-io",
+                jarMapping.classes.size(), jarMapping.fields.size(), jarMapping.methods.size());
+
+        return new MappingData(jarMapping, entries);
     }
 
     private static MappingData reverseMapping(MappingData original) {
