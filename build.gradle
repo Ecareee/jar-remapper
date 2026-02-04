@@ -6,14 +6,17 @@ plugins {
 }
 
 java {
+    // 主代码使用 Java 8，兼容旧项目
     sourceCompatibility = targetCompatibility = JavaVersion.VERSION_1_8
     withSourcesJar()
     withJavadocJar()
 }
 
 compileTestJava {
+    // 测试代码使用 Java 17，利用其文本块特性方便写测试用例
     sourceCompatibility = targetCompatibility = JavaVersion.VERSION_17
     javaCompiler = javaToolchains.compilerFor {
+        // 防止每次 Gradle 同步 test 模块 SDK 都被设置成 Java 8
         languageVersion = JavaLanguageVersion.of(17)
     }
 }
