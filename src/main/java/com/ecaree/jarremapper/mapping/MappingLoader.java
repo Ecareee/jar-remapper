@@ -505,7 +505,7 @@ public class MappingLoader {
         }
 
         for (Map.Entry<String, String> entry : jarMapping.methods.entrySet()) {
-            String key = entry.getKey();  // obfOwner/obfName desc
+            String key = entry.getKey(); // obfOwner/obfName desc
             String readableName = entry.getValue();
 
             int spaceIdx = key.indexOf(' ');
