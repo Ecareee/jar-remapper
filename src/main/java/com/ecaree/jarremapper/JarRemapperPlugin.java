@@ -1,5 +1,6 @@
 package com.ecaree.jarremapper;
 
+import com.ecaree.jarremapper.task.ChainRemapTask;
 import com.ecaree.jarremapper.task.InjectJarAnnotationsTask;
 import com.ecaree.jarremapper.task.MigrateJavaTask;
 import com.ecaree.jarremapper.task.MigrateSmaliTask;
@@ -28,6 +29,7 @@ public class JarRemapperPlugin implements Plugin<Project> {
         registerMigrateSmaliTask(project, extension);
         registerRemapJavaTask(project, extension);
         registerMigrateJavaTask(project, extension);
+        registerChainRemapTask(project, extension);
 
         configureTaskDependencies(project, extension);
     }
@@ -85,6 +87,14 @@ public class JarRemapperPlugin implements Plugin<Project> {
             t.setExtension(extension);
             t.dependsOn("remapJava");
             t.onlyIf(spec -> extension.getEnableJavaMigrateTask().get());
+        });
+    }
+
+    private void registerChainRemapTask(Project project, JarRemapperExtension extension) {
+        project.getTasks().register("chainRemapJar", ChainRemapTask.class, t -> {
+            t.setGroup(TASK_GROUP);
+            t.setDescription("Remap JAR using a chain of mappings");
+            t.setExtension(extension);
         });
     }
 

@@ -251,7 +251,7 @@ public class MappingLoader {
         return new MappingData(jarMapping, entries);
     }
 
-    private static MappingData reverseMapping(MappingData original) {
+    public static MappingData reverseMapping(MappingData original) {
         JarMapping reversed = new JarMapping();
         Map<String, MappingEntry> reversedEntries = new HashMap<>();
 
@@ -266,76 +266,67 @@ public class MappingLoader {
         }
 
         for (Map.Entry<String, String> entry : orig.fields.entrySet()) {
-            String key = entry.getKey(); // obfOwner/obfName
+            String key = entry.getKey();
             String readableName = entry.getValue();
 
-            // 检查是否有空格分隔的描述符
-            int spaceIdx = key.indexOf(' ');
-            String keyWithoutDesc = spaceIdx > 0 ? key.substring(0, spaceIdx) : key;
-            String obfDesc = spaceIdx > 0 ? key.substring(spaceIdx + 1) : null;
+            MappingKeyParser.FieldKey fieldKey = MappingKeyParser.parseFieldKey(key);
+            String readableOwner = orig.classes.getOrDefault(fieldKey.getOwner(), fieldKey.getOwner());
 
-            int slashIdx = keyWithoutDesc.lastIndexOf('/');
-            String obfOwner = keyWithoutDesc.substring(0, slashIdx);
-            String obfName = keyWithoutDesc.substring(slashIdx + 1);
-            String readableOwner = orig.classes.getOrDefault(obfOwner, obfOwner);
-
-            // 反转时保留描述符格式
-            String newKey = obfDesc != null
-                    ? readableOwner + "/" + readableName + " " + remapDescriptor(obfDesc, orig)
-                    : readableOwner + "/" + readableName;
-            reversed.fields.put(newKey, obfName);
+            String newKey;
+            if (fieldKey.getDescriptor() != null) {
+                String readableDesc = remapDescriptor(fieldKey.getDescriptor(), orig);
+                newKey = readableOwner + "/" + readableName + " " + readableDesc;
+            } else {
+                newKey = readableOwner + "/" + readableName;
+            }
+            reversed.fields.put(newKey, fieldKey.getName());
         }
 
         for (Map.Entry<String, String> entry : orig.methods.entrySet()) {
-            String key = entry.getKey(); // obfOwner/obfName desc
+            String key = entry.getKey();
             String readableName = entry.getValue();
 
-            int spaceIdx = key.indexOf(' ');
-            String ownerAndName = key.substring(0, spaceIdx);
-            String obfDescriptor = key.substring(spaceIdx + 1);
+            MappingKeyParser.MethodKey methodKey = MappingKeyParser.parseMethodKey(key);
+            if (methodKey == null) continue;
 
-            int slashIdx = ownerAndName.lastIndexOf('/');
-            String obfOwner = ownerAndName.substring(0, slashIdx);
-            String readableOwner = orig.classes.getOrDefault(obfOwner, obfOwner);
-
-            String readableDescriptor = remapDescriptor(obfDescriptor, orig);
+            String readableOwner = orig.classes.getOrDefault(methodKey.getOwner(), methodKey.getOwner());
+            String readableDescriptor = remapDescriptor(methodKey.getDescriptor(), orig);
 
             String newKey = readableOwner + "/" + readableName + " " + readableDescriptor;
-            String obfName = ownerAndName.substring(slashIdx + 1);
-            reversed.methods.put(newKey, obfName);
+            reversed.methods.put(newKey, methodKey.getName());
         }
 
         for (Map.Entry<String, MappingEntry> entry : original.getEntries().entrySet()) {
             MappingEntry origEntry = entry.getValue();
-            MappingEntry reversedEntry;
-
-            switch (origEntry.getType()) {
-                case CLASS:
-                    reversedEntry = MappingEntry.forClass(
-                            origEntry.getReadableName(),
-                            origEntry.getObfName(),
-                            origEntry.getComment());
-                    break;
-                case FIELD:
-                    reversedEntry = MappingEntry.forField(
-                            origEntry.getReadableOwner(), origEntry.getReadableName(), origEntry.getReadableDescriptor(),
-                            origEntry.getObfOwner(), origEntry.getObfName(), origEntry.getObfDescriptor(),
-                            origEntry.getComment());
-                    break;
-                case METHOD:
-                    reversedEntry = MappingEntry.forMethod(
-                            origEntry.getReadableOwner(), origEntry.getReadableName(), origEntry.getReadableDescriptor(),
-                            origEntry.getObfOwner(), origEntry.getObfName(), origEntry.getObfDescriptor(),
-                            origEntry.getComment());
-                    break;
-                default:
-                    continue;
+            MappingEntry reversedEntry = reverseEntry(origEntry);
+            if (reversedEntry != null) {
+                reversedEntries.put(reversedEntry.getReadableKey(), reversedEntry);
             }
-
-            reversedEntries.put(reversedEntry.getReadableKey(), reversedEntry);
         }
 
         return new MappingData(reversed, reversedEntries);
+    }
+
+    private static MappingEntry reverseEntry(MappingEntry origEntry) {
+        switch (origEntry.getType()) {
+            case CLASS:
+                return MappingEntry.forClass(
+                        origEntry.getReadableName(),
+                        origEntry.getObfName(),
+                        origEntry.getComment());
+            case FIELD:
+                return MappingEntry.forField(
+                        origEntry.getReadableOwner(), origEntry.getReadableName(), origEntry.getReadableDescriptor(),
+                        origEntry.getObfOwner(), origEntry.getObfName(), origEntry.getObfDescriptor(),
+                        origEntry.getComment());
+            case METHOD:
+                return MappingEntry.forMethod(
+                        origEntry.getReadableOwner(), origEntry.getReadableName(), origEntry.getReadableDescriptor(),
+                        origEntry.getObfOwner(), origEntry.getObfName(), origEntry.getObfDescriptor(),
+                        origEntry.getComment());
+            default:
+                return null;
+        }
     }
 
     private static MappingData convertYamlToMappingData(YamlMappingModel model) {
@@ -468,63 +459,34 @@ public class MappingLoader {
         }
 
         for (Map.Entry<String, String> entry : jarMapping.fields.entrySet()) {
-            String key = entry.getKey(); // obfOwner/obfName 或 obfOwner/obfName/obfDesc
+            String key = entry.getKey();
             String readableName = entry.getValue();
 
-            // 解析字段 key，可能包含描述符
-            String obfOwner;
-            String obfName;
-            String obfDesc = null;
-
-            // 检查是否有描述符（TSRG2 格式）
-            String[] parts = key.split("/");
-            if (parts.length >= 2) {
-                obfOwner = String.join("/", java.util.Arrays.copyOfRange(parts, 0, parts.length - 1));
-                String lastPart = parts[parts.length - 1];
-
-                // 检查最后一部分是否包含描述符
-                int spaceIdx = lastPart.indexOf(' ');
-                if (spaceIdx > 0) {
-                    obfName = lastPart.substring(0, spaceIdx);
-                    obfDesc = lastPart.substring(spaceIdx + 1);
-                } else {
-                    obfName = lastPart;
-                }
-            } else {
-                obfOwner = "";
-                obfName = key;
-            }
-
-            String readableOwner = jarMapping.classes.getOrDefault(obfOwner, obfOwner);
+            MappingKeyParser.FieldKey fieldKey = MappingKeyParser.parseFieldKey(key);
+            String readableOwner = jarMapping.classes.getOrDefault(fieldKey.getOwner(), fieldKey.getOwner());
+            String readableDesc = fieldKey.getDescriptor() != null
+                    ? remapDescriptor(fieldKey.getDescriptor(), jarMapping)
+                    : null;
 
             MappingEntry fieldEntry = MappingEntry.forField(
-                    obfOwner, obfName, obfDesc,
-                    readableOwner, readableName, obfDesc != null ? remapDescriptor(obfDesc, jarMapping) : null,
+                    fieldKey.getOwner(), fieldKey.getName(), fieldKey.getDescriptor(),
+                    readableOwner, readableName, readableDesc,
                     null);
             entries.put(fieldEntry.getReadableKey(), fieldEntry);
         }
 
         for (Map.Entry<String, String> entry : jarMapping.methods.entrySet()) {
-            String key = entry.getKey(); // obfOwner/obfName desc
+            String key = entry.getKey();
             String readableName = entry.getValue();
 
-            int spaceIdx = key.indexOf(' ');
-            if (spaceIdx < 0) continue;
+            MappingKeyParser.MethodKey methodKey = MappingKeyParser.parseMethodKey(key);
+            if (methodKey == null) continue;
 
-            String ownerAndName = key.substring(0, spaceIdx);
-            String obfDescriptor = key.substring(spaceIdx + 1);
-
-            int slashIdx = ownerAndName.lastIndexOf('/');
-            if (slashIdx < 0) continue;
-
-            String obfOwner = ownerAndName.substring(0, slashIdx);
-            String obfName = ownerAndName.substring(slashIdx + 1);
-
-            String readableOwner = jarMapping.classes.getOrDefault(obfOwner, obfOwner);
-            String readableDescriptor = remapDescriptor(obfDescriptor, jarMapping);
+            String readableOwner = jarMapping.classes.getOrDefault(methodKey.getOwner(), methodKey.getOwner());
+            String readableDescriptor = remapDescriptor(methodKey.getDescriptor(), jarMapping);
 
             MappingEntry methodEntry = MappingEntry.forMethod(
-                    obfOwner, obfName, obfDescriptor,
+                    methodKey.getOwner(), methodKey.getName(), methodKey.getDescriptor(),
                     readableOwner, readableName, readableDescriptor,
                     null);
             entries.put(methodEntry.getReadableKey(), methodEntry);
@@ -541,7 +503,7 @@ public class MappingLoader {
         return className.replace('.', '/');
     }
 
-    private static String remapDescriptor(String descriptor, JarMapping jarMapping) {
+    static String remapDescriptor(String descriptor, JarMapping jarMapping) {
         if (descriptor == null) return null;
 
         StringBuilder result = new StringBuilder();
