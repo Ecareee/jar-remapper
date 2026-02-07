@@ -107,14 +107,14 @@ afterEvaluate {
     }
 }
 
-tasks.register('extractImpldep', Jar) {
-    archiveBaseName = 'gradle-impldep'
-    destinationDirectory = layout.buildDirectory.dir('extracted-libs')
-
-    from(zipTree(dependencies.gradleApi().files.find { it.name.contains('gradle-api') })) {
-        include 'org/gradle/internal/impldep/**'
-    }
-}
+//tasks.register('extractImpldep', Jar) {
+//    archiveBaseName = 'gradle-impldep'
+//    destinationDirectory = layout.buildDirectory.dir('extracted-libs')
+//
+//    from(zipTree(dependencies.gradleApi().files.find { it.name.contains('gradle-api') })) {
+//        include 'org/gradle/internal/impldep/**'
+//    }
+//}
 
 dependencies {
     // 过滤后的 gradleApi()
