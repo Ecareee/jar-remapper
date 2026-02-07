@@ -34,7 +34,8 @@ public class MappingResolverTest {
         return GradleRunner.create()
                 .withProjectDir(projectDir)
                 .withPluginClasspath()
-                .withArguments(taskName, "--stacktrace")
+                .withArguments(taskName, "--stacktrace", "--info")
+                .forwardOutput() // 没有我的 log4j2 格式，难受
                 .build();
     }
 
