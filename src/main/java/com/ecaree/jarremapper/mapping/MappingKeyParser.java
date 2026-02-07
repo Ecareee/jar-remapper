@@ -8,7 +8,6 @@ import lombok.RequiredArgsConstructor;
  * 用于解析 JarMapping 中的字段/方法 key
  */
 public class MappingKeyParser {
-
     /**
      * 解析字段 key
      * 格式：owner/name 或 owner/name desc

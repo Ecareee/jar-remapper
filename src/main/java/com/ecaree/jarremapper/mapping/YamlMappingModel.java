@@ -10,7 +10,6 @@ import java.util.List;
 @NoArgsConstructor
 public class YamlMappingModel {
     private String version;
-
     private List<ClassMapping> classes = new ArrayList<>();
 
     @Data

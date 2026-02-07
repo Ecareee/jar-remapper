@@ -20,6 +20,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.jar.JarFile;
+import java.util.zip.ZipEntry;
 
 /**
  * 映射文件解析器
@@ -30,7 +32,6 @@ import java.nio.file.StandardCopyOption;
 public class MappingResolver {
     private static final String VERSION_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
     private static final Gson GSON = new Gson();
-
     private final Project project;
 
     public static String normalizeSpigotVersion(String version) {
@@ -60,14 +61,40 @@ public class MappingResolver {
         return resolveAndLoad(coords, null, null);
     }
 
-    // ==================== Fabric ====================
-
-    public File resolveFabricIntermediary(String mcVersion) {
-        return resolve("net.fabricmc:intermediary:" + mcVersion + ":v2@tiny");
+    public File resolveFabricIntermediary(String mcVersion) throws IOException {
+        File jarFile = resolve("net.fabricmc:intermediary:" + mcVersion + ":v2");
+        return extractMappingFromJar(jarFile, "intermediary-" + mcVersion);
     }
 
-    public File resolveFabricYarn(String yarnVersion) {
-        return resolve("net.fabricmc:yarn:" + yarnVersion + ":v2@tiny");
+    public File resolveFabricYarn(String yarnVersion) throws IOException {
+        File jarFile = resolve("net.fabricmc:yarn:" + yarnVersion + ":v2");
+        return extractMappingFromJar(jarFile, "yarn-" + yarnVersion);
+    }
+
+    private File extractMappingFromJar(File jarFile, String cacheName) throws IOException {
+        Path cacheDir = project.getGradle().getGradleUserHomeDir().toPath()
+                .resolve("caches/jarremapper/extracted-mappings");
+        Files.createDirectories(cacheDir);
+
+        Path cachedFile = cacheDir.resolve(cacheName + ".tiny");
+        if (Files.exists(cachedFile) && Files.getLastModifiedTime(cachedFile).toMillis() >= jarFile.lastModified()) {
+            log.info("Using cached extracted mapping: {}", cachedFile);
+            return cachedFile.toFile();
+        }
+
+        log.info("Extracting {} from {}", "mappings/mappings.tiny", jarFile.getName());
+        try (JarFile jar = new JarFile(jarFile)) {
+            ZipEntry entry = jar.getEntry("mappings/mappings.tiny");
+            if (entry == null) {
+                throw new IOException("Entry not found in JAR: " + "mappings/mappings.tiny");
+            }
+            try (InputStream is = jar.getInputStream(entry)) {
+                Files.copy(is, cachedFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+
+        log.info("Extracted mapping to: {}", cachedFile);
+        return cachedFile.toFile();
     }
 
     public MappingData loadFabricMappingChain(String mcVersion, String yarnVersion) throws IOException {
@@ -83,22 +110,13 @@ public class MappingResolver {
                 .merge();
     }
 
-    // ==================== Forge/NeoForge ====================
-
     public File resolveForgeSrg(String mcVersion) {
         return resolve("net.minecraftforge:forge:" + mcVersion + ":srg@tsrg");
-    }
-
-    public File resolveMcp(String channel, String mappingVersion, String mcVersion) {
-        String coords = "de.oceanlabs.mcp:mcp_" + channel + ":" + mappingVersion + "-" + mcVersion + "@zip";
-        return resolve(coords);
     }
 
     public File resolveParchment(String mcVersion, String parchmentVersion) {
         return resolve("org.parchmentmc.data:parchment-" + mcVersion + ":" + parchmentVersion + "@zip");
     }
-
-    // ==================== Spigot/Paper ====================
 
     public File resolveSpigotMojangMappings(String version) {
         return resolve("org.spigotmc:minecraft-server:" + version + ":maps-mojang@txt");
@@ -120,8 +138,6 @@ public class MappingResolver {
                 .add(obfToSpigot)
                 .merge();
     }
-
-    // ==================== Mojang ====================
 
     public File resolveMojangMappings(String mcVersion, String side) throws IOException {
         if (!"client".equals(side) && !"server".equals(side)) {
@@ -202,7 +218,7 @@ public class MappingResolver {
             StringBuilder sb = new StringBuilder();
             String line;
             while ((line = reader.readLine()) != null) {
-                sb.append(line);
+                sb.append(line).append('\n');
             }
             return sb.toString();
         }
