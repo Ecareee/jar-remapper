@@ -1,5 +1,7 @@
 import org.gradle.api.internal.artifacts.dependencies.DefaultFileCollectionDependency
 
+import java.util.jar.JarFile
+
 plugins {
     id 'java-gradle-plugin'
     id 'maven-publish'
@@ -49,15 +51,43 @@ def filterFiles = { fileCollection ->
     })
 }
 
-def filteredGradleApi = filterFiles(dependencies.gradleApi())
-// gradleApi() 会把 slf4j 打包到 gradle-api.jar 中，要想排除 slf4j，就必须从 lib 目录过滤
+// Gradle 打包 gradle-api.jar 时会把第三方依赖 shade 到 org.gradle.internal.impldep 包下
+// 而 Gradle 内部会使用 impldep 包下的类，所以需要从 gradle-api.jar 提取 impldep 包下的类
+def gradleApiJar = dependencies.gradleApi().files.find { it.name.contains('gradle-api') }
+//def impldepClasses = zipTree(gradleApiJar).matching {
+//    include 'org/gradle/internal/impldep/**'
+//}
+def impldepJarFile = layout.buildDirectory.file("extracted-libs/gradle-impldep-${gradle.gradleVersion}.jar").get().asFile
+if (!impldepJarFile.exists()) {
+    impldepJarFile.parentFile.mkdirs()
+    ant.jar(destfile: impldepJarFile) {
+        zipfileset(src: gradleApiJar) {
+            include(name: 'org/gradle/internal/impldep/**')
+        }
+    }
+}
+
+// Gradle 会将 lib/ 目录下的 jar 包打包到 gradle-api.jar 中
+def libJars = fileTree("${gradle.gradleHomeDir}/lib") { include '*.jar' }
+
+//def filteredGradleApi = filterFiles(dependencies.gradleApi())
+
+// Gradle 会把 slf4j 打包到 gradle-api.jar 中，要想排除 slf4j，就必须从 lib 目录过滤
 def filteredGradleApiFromLib = filterFiles(
-        fileTree("${gradle.gradleHomeDir}/lib") { include '*.jar' }
+        libJars
 )
-def filteredGradleTestKit = filterFiles(dependencies.gradleTestKit())
-// gradleTestKit() 只比 gradleApi() 多了个 gradle-test-kit
-def filteredGradleTestKitFromLib = files(
+
+// 提取 impldep 包下的类到 filteredGradleApiFromLib
+def filteredGradleApiFromLibWithImpldep = files(
         filteredGradleApiFromLib,
+        impldepJarFile
+)
+
+//def filteredGradleTestKit = filterFiles(dependencies.gradleTestKit())
+
+// gradleTestKit() 只比 gradleApi() 多了个 gradle-test-kit
+def filteredGradleTestKitFromLibWithImpldep = files(
+        filteredGradleApiFromLibWithImpldep,
         dependencies.gradleTestKit().files.find {
             it.name.contains('gradle-test-kit')
         }
@@ -77,10 +107,19 @@ afterEvaluate {
     }
 }
 
+tasks.register('extractImpldep', Jar) {
+    archiveBaseName = 'gradle-impldep'
+    destinationDirectory = layout.buildDirectory.dir('extracted-libs')
+
+    from(zipTree(dependencies.gradleApi().files.find { it.name.contains('gradle-api') })) {
+        include 'org/gradle/internal/impldep/**'
+    }
+}
+
 dependencies {
     // 过滤后的 gradleApi()
 //    implementation filteredGradleApi
-    implementation filteredGradleApiFromLib
+    implementation filteredGradleApiFromLibWithImpldep
 
     // Lombok
     compileOnly 'org.projectlombok:lombok:1.18.42'
@@ -115,7 +154,7 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter:5.14.2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 //    testImplementation filteredGradleTestKit
-    testImplementation filteredGradleTestKitFromLib
+    testImplementation filteredGradleTestKitFromLibWithImpldep
 
     // 日志
     implementation 'org.slf4j:slf4j-api:2.1.0-alpha1'
@@ -170,5 +209,101 @@ tasks.named('jar', Jar) {
                 'Implementation-Version': version,
                 'Implementation-Vendor': group
         )
+    }
+}
+
+def getPackages = { files ->
+    def packages = [] as Set
+    files.each { file ->
+        if (file.isDirectory()) {
+            file.eachFileRecurse { f ->
+                if (f.name.endsWith('.class')) {
+                    def relative = f.path - file.path - File.separator
+                    def pkg = relative.contains(File.separator)
+                            ? relative.substring(0, relative.lastIndexOf(File.separator))
+                            : ''
+                    packages << pkg.replace(File.separator, '.')
+                }
+            }
+        } else if (file.name.endsWith('.jar') && file.exists()) {
+            try {
+                new JarFile(file).withCloseable { jar ->
+                    jar.entries().each { entry ->
+                        if (entry.name.endsWith('.class')) {
+                            def pkg = entry.name.contains('/')
+                                    ? entry.name.substring(0, entry.name.lastIndexOf('/'))
+                                    : ''
+                            packages << pkg.replace('/', '.')
+                        }
+                    }
+                }
+            } catch (e) {
+                println "Skipped: ${file.name} (${e.message})"
+            }
+        } else if (file.name.endsWith('.class') && file.exists()) {
+            def path = file.path.replace('\\', '/')
+            def marker = 'org/gradle/internal/impldep/' // zipTree 解压后的文件是完整的临时目录路径，此处硬编码路径得到包名
+            def idx = path.indexOf(marker)
+            if (idx >= 0) {
+                def relative = path.substring(idx)
+                def pkg = relative.contains('/')
+                        ? relative.substring(0, relative.lastIndexOf('/'))
+                        : ''
+                packages << pkg.replace('/', '.')
+            }
+        }
+    }
+    return packages
+}
+
+/**
+ * 比较 lib/ 目录和 gradle-api.jar 的包差异
+ * 从打印结果可以看到大量 lib/ 目录下的第三方库的包以及与其对应的 gradle-api.jar 中被 shade 的第三方库的包
+ * org.gradle.internal.impldep.* 是 Gradle 打包时将第三方依赖 shade 到的包名
+ */
+tasks.register('compareLibAndGradleApi') {
+    doLast {
+        def libPackages = getPackages(libJars.files)
+        def apiPackages = getPackages([gradleApiJar])
+
+        println "Source: lib/ (${libJars.files.size()} jars), gradle-api.jar"
+        println "Packages: lib/ ${libPackages.size()}, gradle-api.jar ${apiPackages.size()}"
+        println ""
+
+        def onlyInLib = (libPackages - apiPackages).sort()
+        def onlyInApi = (apiPackages - libPackages).sort()
+
+        println "Packages only in lib/ (${onlyInLib.size()}):"
+        onlyInLib.each { println "  $it" }
+        println "\nPackages only in gradle-api.jar (${onlyInApi.size()}):"
+        onlyInApi.each { println "  $it" }
+    }
+}
+
+/**
+ * 比较 filteredGradleApiFromLibWithImpldep 和 gradle-api.jar 的包差异
+ */
+tasks.register('compareFilteredWithImpldepAndGradleApi') {
+    doLast {
+        def filteredWithImpldepPackages = getPackages(filteredGradleApiFromLibWithImpldep.files)
+        def apiPackages = getPackages([gradleApiJar])
+
+        println "Source: filteredWithImpldep, gradle-api.jar"
+        println "Packages: filteredWithImpldep ${filteredWithImpldepPackages.size()}, gradle-api.jar ${apiPackages.size()}"
+        println ""
+
+        def onlyInFilteredWithImpldep = (filteredWithImpldepPackages - apiPackages).sort()
+        def onlyInApi = (apiPackages - filteredWithImpldepPackages).sort()
+        def common = filteredWithImpldepPackages.intersect(apiPackages)
+
+        println "Common packages: ${common.size()}"
+        println "\nPackages only in filteredWithImpldep (${onlyInFilteredWithImpldep.size()}):"
+        onlyInFilteredWithImpldep.each { println "  $it" }
+        println "\nPackages Only in gradle-api.jar (${onlyInApi.size()}):"
+        onlyInApi.each { println "  $it" }
+
+        def impldepInFiltered = filteredWithImpldepPackages.findAll { it.startsWith('org.gradle.internal.impldep') }
+        def impldepInApi = apiPackages.findAll { it.startsWith('org.gradle.internal.impldep') }
+        println "\nImpldep packages: filteredWithImpldep ${impldepInFiltered.size()}, gradle-api.jar ${impldepInApi.size()}"
     }
 }
