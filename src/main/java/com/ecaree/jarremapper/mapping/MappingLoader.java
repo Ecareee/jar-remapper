@@ -72,6 +72,11 @@ public class MappingLoader {
     }
 
     private static boolean containsPackageMapping(File file) throws IOException {
+        String fileName = file.getName().toLowerCase();
+        if (fileName.endsWith(".jar") || fileName.endsWith(".zip")) {
+            return false;
+        }
+
         try (BufferedReader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
             String line;
             int lineCount = 0;
