@@ -25,8 +25,8 @@ import java.util.Map;
  * 映射加载器
  * 支持以下格式：
  * 1. 自定义：YAML（支持注释）
- * 2. mapping-io：Tiny/Tiny2/Enigma/ProGuard/SRG/XSRG/JAM/CSRG/TSRG/TSRG2/JOBF/...
- * 3. SpecialSource：SRG/CSRG/TSRG/TSRG2/ProGuard，作为回退
+ * 2. mapping-io: Tiny/Tiny2/Enigma/ProGuard/SRG/XSRG/JAM/CSRG/TSRG/TSRG2/JOBF/...
+ * 3. SpecialSource: SRG/CSRG/TSRG/TSRG2/ProGuard，作为回退
  */
 @Slf4j
 public class MappingLoader {
