@@ -755,37 +755,51 @@ public class JavaRemapper {
                 log.debug("Failed to resolve method call '{}': {}", n, e.getMessage());
             }
 
-            // 回退处理
-            if (!remapped) {
-                if (!n.getScope().isPresent()) {
-                    // 检查静态导入
-                    String ownerClass = staticImportedMembers.get(methodName);
-                    if (ownerClass != null) {
-                        String remappedName = remapMethod(ownerClass, methodName);
-                        if (!remappedName.equals(methodName)) {
-                            n.setName(remappedName);
+            // 回退 1：从 scope 类型推断
+            if (!remapped && n.getScope().isPresent()) {
+                try {
+                    ResolvedType scopeType = n.getScope().get().calculateResolvedType();
+                    if (scopeType.isReferenceType()) {
+                        String ownerClass = toInternalName(scopeType.asReferenceType().getQualifiedName());
+                        String remappedMethod = remapMethod(ownerClass, methodName);
+                        if (!remappedMethod.equals(methodName)) {
+                            n.setName(remappedMethod);
                             remapped = true;
                         }
                     }
-                    if (!remapped) {
-                        for (String asteriskClass : staticAsteriskClasses) {
-                            String remappedName = remapMethod(asteriskClass, methodName);
-                            if (!remappedName.equals(methodName)) {
-                                n.setName(remappedName);
-                                remapped = true;
-                                break;
-                            }
+                } catch (UnsolvedSymbolException | UnsupportedOperationException e) {
+                    log.debug("Failed to resolve scope type for method call '{}': {}", n, e.getMessage());
+                }
+            }
+
+            // 回退 2：检查静态导入
+            if (!remapped && !n.getScope().isPresent()) {
+                String ownerClass = staticImportedMembers.get(methodName);
+                if (ownerClass != null) {
+                    String remappedName = remapMethod(ownerClass, methodName);
+                    if (!remappedName.equals(methodName)) {
+                        n.setName(remappedName);
+                        remapped = true;
+                    }
+                }
+                if (!remapped) {
+                    for (String asteriskClass : staticAsteriskClasses) {
+                        String remappedName = remapMethod(asteriskClass, methodName);
+                        if (!remappedName.equals(methodName)) {
+                            n.setName(remappedName);
+                            remapped = true;
+                            break;
                         }
                     }
                 }
+            }
 
-                // 全局唯一映射回退
-                if (!remapped) {
-                    String fallbackRemapped = uniqueMethodMappings.get(methodName);
-                    if (fallbackRemapped != null) {
-                        n.setName(fallbackRemapped);
-                        log.debug("Method '{}' remapped to '{}' via fallback", methodName, fallbackRemapped);
-                    }
+            // 回退 3：全局唯一方法映射
+            if (!remapped) {
+                String fallbackRemapped = uniqueMethodMappings.get(methodName);
+                if (fallbackRemapped != null) {
+                    n.setName(fallbackRemapped);
+                    log.debug("Method '{}' remapped to '{}' via fallback", methodName, fallbackRemapped);
                 }
             }
 
