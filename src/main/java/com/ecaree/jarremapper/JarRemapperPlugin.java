@@ -12,16 +12,22 @@ import org.gradle.api.Project;
 import org.gradle.api.Task;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class JarRemapperPlugin implements Plugin<Project> {
     public static final String EXTENSION_NAME = "jarRemapper";
     public static final String TASK_GROUP = "jarRemapper";
+    private static final String TASK_PREFIX = "jr";
+    private final Map<String, String> resolvedNames = new HashMap<>();
 
     @Override
     public void apply(Project project) {
         JarRemapperExtension extension = project.getExtensions()
                 .create(EXTENSION_NAME, JarRemapperExtension.class, project);
+
+        resolveTaskNames(project);
 
         registerRemapJarTask(project, extension);
         registerInjectJarAnnotationsTask(project, extension);
@@ -34,8 +40,28 @@ public class JarRemapperPlugin implements Plugin<Project> {
         configureTaskDependencies(project, extension);
     }
 
+    private void resolveTaskNames(Project project) {
+        String[] names = {
+                "remapJar", "injectJarAnnotations", "remapSmali",
+                "migrateSmali", "remapJava", "migrateJava", "chainRemapJar"
+        };
+        for (String name : names) {
+            if (project.getTasks().getNames().contains(name)) {
+                String prefixed = TASK_PREFIX + name.substring(0, 1).toUpperCase() + name.substring(1);
+                project.getLogger().warn("JarRemapper: Task '{}' already exists, using '{}'", name, prefixed);
+                resolvedNames.put(name, prefixed);
+            } else {
+                resolvedNames.put(name, name);
+            }
+        }
+    }
+
+    private String resolveTaskName(String original) {
+        return resolvedNames.getOrDefault(original, original);
+    }
+
     private void registerRemapJarTask(Project project, JarRemapperExtension extension) {
-        project.getTasks().register("remapJar", RemapJarTask.class, t -> {
+        project.getTasks().register(resolveTaskName("remapJar"), RemapJarTask.class, t -> {
             t.setGroup(TASK_GROUP);
             t.setDescription("Remap obfuscated JAR to readable naming using SpecialSource");
             t.setExtension(extension);
@@ -44,17 +70,17 @@ public class JarRemapperPlugin implements Plugin<Project> {
     }
 
     private void registerInjectJarAnnotationsTask(Project project, JarRemapperExtension extension) {
-        project.getTasks().register("injectJarAnnotations", InjectJarAnnotationsTask.class, t -> {
+        project.getTasks().register(resolveTaskName("injectJarAnnotations"), InjectJarAnnotationsTask.class, t -> {
             t.setGroup(TASK_GROUP);
             t.setDescription("Inject mapping annotations into remapped JAR");
             t.setExtension(extension);
-            t.dependsOn("remapJar");
+            t.dependsOn(resolveTaskName("remapJar"));
             t.onlyIf(spec -> extension.getInjectBytecodeAnnotations().get());
         });
     }
 
     private void registerRemapSmaliTask(Project project, JarRemapperExtension extension) {
-        project.getTasks().register("remapSmali", RemapSmaliTask.class, t -> {
+        project.getTasks().register(resolveTaskName("remapSmali"), RemapSmaliTask.class, t -> {
             t.setGroup(TASK_GROUP);
             t.setDescription("Remap obfuscated smali source to readable naming");
             t.setExtension(extension);
@@ -63,17 +89,17 @@ public class JarRemapperPlugin implements Plugin<Project> {
     }
 
     private void registerMigrateSmaliTask(Project project, JarRemapperExtension extension) {
-        project.getTasks().register("migrateSmali", MigrateSmaliTask.class, t -> {
+        project.getTasks().register(resolveTaskName("migrateSmali"), MigrateSmaliTask.class, t -> {
             t.setGroup(TASK_GROUP);
             t.setDescription("Migrate remapped smali back to project directory");
             t.setExtension(extension);
-            t.dependsOn("remapSmali");
+            t.dependsOn(resolveTaskName("remapSmali"));
             t.onlyIf(spec -> extension.getEnableSmaliMigrateTask().get());
         });
     }
 
     private void registerRemapJavaTask(Project project, JarRemapperExtension extension) {
-        project.getTasks().register("remapJava", RemapJavaTask.class, t -> {
+        project.getTasks().register(resolveTaskName("remapJava"), RemapJavaTask.class, t -> {
             t.setGroup(TASK_GROUP);
             t.setDescription("Remap obfuscated Java source to readable naming");
             t.setExtension(extension);
@@ -81,17 +107,17 @@ public class JarRemapperPlugin implements Plugin<Project> {
     }
 
     private void registerMigrateJavaTask(Project project, JarRemapperExtension extension) {
-        project.getTasks().register("migrateJava", MigrateJavaTask.class, t -> {
+        project.getTasks().register(resolveTaskName("migrateJava"), MigrateJavaTask.class, t -> {
             t.setGroup(TASK_GROUP);
             t.setDescription("Migrate remapped Java source back to project directory");
             t.setExtension(extension);
-            t.dependsOn("remapJava");
+            t.dependsOn(resolveTaskName("remapJava"));
             t.onlyIf(spec -> extension.getEnableJavaMigrateTask().get());
         });
     }
 
     private void registerChainRemapTask(Project project, JarRemapperExtension extension) {
-        project.getTasks().register("chainRemapJar", ChainRemapTask.class, t -> {
+        project.getTasks().register(resolveTaskName("chainRemapJar"), ChainRemapTask.class, t -> {
             t.setGroup(TASK_GROUP);
             t.setDescription("Remap JAR using a chain of mappings");
             t.setExtension(extension);
@@ -103,9 +129,9 @@ public class JarRemapperPlugin implements Plugin<Project> {
             if (!extension.getRemapJar().get()) return;
 
             List<String> remapTasks = new ArrayList<>();
-            remapTasks.add("remapJar");
+            remapTasks.add(resolveTaskName("remapJar"));
             if (extension.getInjectBytecodeAnnotations().get()) {
-                remapTasks.add("injectJarAnnotations");
+                remapTasks.add(resolveTaskName("injectJarAnnotations"));
             }
 
             // Android 项目挂载到 preBuild
