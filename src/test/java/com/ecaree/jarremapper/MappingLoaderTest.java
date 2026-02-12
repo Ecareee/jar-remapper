@@ -35,15 +35,18 @@ public class MappingLoaderTest {
         yamlFile = tempDir.resolve("mappings.yaml").toFile();
         Files.writeString(yamlFile.toPath(), """
                 version: "1.0"
+                
                 classes:
                   - obfuscated: a/b
                     readable: com/example/TestClass
                     comment: "Test class"
+                
                     fields:
                       - obfuscated: a
                         readable: mField
                         type: Ljava/lang/String;
                         comment: "Test field"
+                
                     methods:
                       - obfuscated: a
                         readable: testMethod
@@ -278,11 +281,14 @@ public class MappingLoaderTest {
         File complexYaml = tempDir.resolve("complex.yaml").toFile();
         Files.writeString(complexYaml.toPath(), """
                 version: "1.0"
+                
                 classes:
                   - obfuscated: a/A
                     readable: com/example/ClassA
+                
                   - obfuscated: a/B
                     readable: com/example/ClassB
+                
                     methods:
                       - obfuscated: m
                         readable: process
@@ -319,6 +325,7 @@ public class MappingLoaderTest {
         File innerClassYaml = tempDir.resolve("inner.yaml").toFile();
         Files.writeString(innerClassYaml.toPath(), """
                 version: "1.0"
+                
                 classes:
                   - obfuscated: a/b
                     readable: com/example/Outer

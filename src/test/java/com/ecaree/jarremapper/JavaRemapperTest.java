@@ -33,37 +33,48 @@ public class JavaRemapperTest {
                 classes:
                   - obfuscated: a/b
                     readable: com/example/TestClass
+                
                     fields:
                       - obfuscated: a
                         readable: mValue
                         type: I
+                
                       - obfuscated: d
                         readable: mHelper
                         type: La/c;
+                
                     methods:
                       - obfuscated: a
                         readable: getValue
                         descriptor: ()I
+                
                       - obfuscated: b
                         readable: getHelper
                         descriptor: ()La/c;
+                
                       - obfuscated: c
                         readable: process
                         descriptor: (La/c;)V
+                
                   - obfuscated: a/c
                     readable: com/example/Helper
+                
                     fields:
                       - obfuscated: x
                         readable: data
                         type: I
+                
                     methods:
                       - obfuscated: y
                         readable: doWork
                         descriptor: ()V
+                
                   - obfuscated: a/d
                     readable: com/example/Status
+                
                   - obfuscated: a/e
                     readable: com/example/DataRecord
+                
                   - obfuscated: a/f
                     readable: com/example/Marker
                 """;
@@ -1287,11 +1298,14 @@ public class JavaRemapperTest {
 
         String yaml = """
                 version: "1.0"
+                
                 classes:
                   - obfuscated: a/b
                     readable: com/example/TestClass
+                
                   - obfuscated: a/c
                     readable: com/example/Helper
+                
                   - obfuscated: a/Ex
                     readable: com/example/CustomException
                 """;
@@ -1397,11 +1411,14 @@ public class JavaRemapperTest {
 
         String yaml = """
                 version: "1.0"
+                
                 classes:
                   - obfuscated: a/BaseClass
                     readable: com/example/AbstractBase
+                
                   - obfuscated: a/IFace
                     readable: com/example/MyInterface
+                
                   - obfuscated: a/Impl
                     readable: com/example/Implementation
                 """;
@@ -1465,11 +1482,14 @@ public class JavaRemapperTest {
 
         String yaml = """
                 version: "1.0"
+                
                 classes:
                   - obfuscated: a/b
                     readable: com/example/TestClass
+                
                   - obfuscated: a/Res
                     readable: com/example/Resource
+                
                     methods:
                       - obfuscated: c
                         readable: close

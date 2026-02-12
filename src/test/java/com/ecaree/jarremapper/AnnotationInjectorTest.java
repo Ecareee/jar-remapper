@@ -35,15 +35,18 @@ public class AnnotationInjectorTest {
     public void setUp() throws IOException {
         String yaml = """
                 version: "1.0"
+                
                 classes:
                   - obfuscated: a/b
                     readable: com/example/TestClass
                     comment: This is a test class
+                
                     fields:
                       - obfuscated: a
                         readable: mValue
                         type: I
                         comment: "Value field"
+                
                     methods:
                       - obfuscated: a
                         readable: getValue

@@ -37,25 +37,31 @@ public class IntegrationTest {
     private File createMappingFile(Path tempDir) throws IOException {
         String yaml = """
                 version: "1.0"
+                
                 classes:
                   - obfuscated: a/A
                     readable: com/example/app/MainActivity
-                    comment: Main activity
+                    comment: "Main activity"
+                
                     fields:
                       - obfuscated: a
                         readable: mBinding
                         type: La/B;
                         comment: "View binding"
+                
                     methods:
                       - obfuscated: a
                         readable: onCreate
                         descriptor: (Landroid/os/Bundle;)V
                         comment: "Create callback"
+                
                   - obfuscated: a/B
                     readable: com/example/app/databinding/ActivityMainBinding
-                    comment: Main activity binding
+                    comment: "Main activity binding"
+                
                   - obfuscated: b/C
                     readable: com/example/util/Helper
+                
                     methods:
                       - obfuscated: a
                         readable: doWork

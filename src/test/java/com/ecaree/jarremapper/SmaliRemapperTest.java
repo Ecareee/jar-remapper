@@ -33,45 +33,58 @@ public class SmaliRemapperTest {
         File yamlFile = tempDir.resolve("mappings.yaml").toFile();
         Files.writeString(yamlFile.toPath(), """
                 version: "1.0"
+                
                 classes:
                   - obfuscated: a/b
                     readable: com/example/TestClass
+                
                     fields:
                       - obfuscated: a
                         readable: mValue
                         type: I
+                
                       - obfuscated: b
                         readable: mHelper
                         type: La/c;
+                
                     methods:
                       - obfuscated: a
                         readable: getValue
                         descriptor: ()I
+                
                       - obfuscated: b
                         readable: setHelper
                         descriptor: (La/c;)V
+                
                   - obfuscated: a/b$a
                     readable: com/example/TestClass$Handler
+                
                     fields:
                       - obfuscated: a
                         readable: callback
                         type: Ljava/lang/Runnable;
+                
                     methods:
                       - obfuscated: a
                         readable: execute
                         descriptor: ()V
+                
                   - obfuscated: a/b$b
                     readable: com/example/TestClass$Builder
+                
                     methods:
                       - obfuscated: a
                         readable: build
                         descriptor: ()La/b;
+                
                   - obfuscated: a/c
                     readable: com/example/Helper
+                
                     fields:
                       - obfuscated: x
                         readable: data
                         type: I
+                
                     methods:
                       - obfuscated: m
                         readable: doWork
