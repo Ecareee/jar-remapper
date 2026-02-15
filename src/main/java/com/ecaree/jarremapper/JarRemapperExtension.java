@@ -12,6 +12,7 @@ import org.gradle.api.provider.Property;
 
 import java.io.File;
 import java.util.Collections;
+import java.util.List;
 
 @Getter
 public class JarRemapperExtension {
@@ -185,6 +186,86 @@ public class JarRemapperExtension {
         enableJavaMigrateTask.convention(true);
 
         reportsDir.convention(layout.getBuildDirectory().dir("reports/jarRemapper"));
+    }
+
+    public void setMappingsFile(Object file) {
+        this.mappingsFile.fileValue(project.file(file));
+    }
+
+    public void setSourceNamespace(String namespace) {
+        this.sourceNamespace.set(namespace);
+    }
+
+    public void setTargetNamespace(String namespace) {
+        this.targetNamespace.set(namespace);
+    }
+
+    public void setExcludedPackages(List<String> packages) {
+        this.excludedPackages.set(packages);
+    }
+
+    public void setInputJar(Object file) {
+        this.inputJar.fileValue(project.file(file));
+    }
+
+    public void setOutputJar(Object file) {
+        this.outputJar.fileValue(project.file(file));
+    }
+
+    public void setRemapJar(boolean value) {
+        this.remapJar.set(value);
+    }
+
+    public void setInjectBytecodeAnnotations(boolean value) {
+        this.injectBytecodeAnnotations.set(value);
+    }
+
+    public void setInjectReadableInfo(boolean value) {
+        this.injectReadableInfo.set(value);
+    }
+
+    public void setSmaliInputDir(Object dir) {
+        this.smaliInputDir.fileValue(project.file(dir));
+    }
+
+    public void setSmaliOutputDir(Object dir) {
+        this.smaliOutputDir.fileValue(project.file(dir));
+    }
+
+    public void setRemapSmali(boolean value) {
+        this.remapSmali.set(value);
+    }
+
+    public void setSmaliBackupDir(Object dir) {
+        this.smaliBackupDir.fileValue(project.file(dir));
+    }
+
+    public void setEnableSmaliMigrateTask(boolean value) {
+        this.enableSmaliMigrateTask.set(value);
+    }
+
+    public void setJavaInputDir(Object dir) {
+        this.javaInputDir.fileValue(project.file(dir));
+    }
+
+    public void setJavaOutputDir(Object dir) {
+        this.javaOutputDir.fileValue(project.file(dir));
+    }
+
+    public void setJavaBackupDir(Object dir) {
+        this.javaBackupDir.fileValue(project.file(dir));
+    }
+
+    public void setEnableJavaMigrateTask(boolean value) {
+        this.enableJavaMigrateTask.set(value);
+    }
+
+    public void setJavaLibraryJars(Object... files) {
+        this.javaLibraryJars.setFrom(files);
+    }
+
+    public void setReportsDir(Object dir) {
+        this.reportsDir.fileValue(project.file(dir));
     }
 
     /**
